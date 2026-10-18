@@ -78,6 +78,33 @@ export function sinRepetirMinuto(goles) {
   });
 }
 
-// Modelo de Gemini y cuánto "piensa" antes de responder (null = lo que decida el modelo; 0 = no piensa).
-// Con 0 acertó 10/10 en la prueba de regresión, en ~4 s en vez de ~12 s.
-export const AJUSTES_ESCANER = { modelo: 'gemini-2.5-flash', pensamiento: 0 };
+// Modelos de Gemini en orden de preferencia y cuánto "piensa" antes de responder
+// (null = lo que decida el modelo; 0 = no piensa). Si uno está saturado, sin cuota o ya no
+// existe, se intenta con el siguiente. Prueba de regresión del 18/10/2026 con pensamiento 0:
+//   gemini-2.5-flash              10/10, ~4 s
+//   gemini-3-flash-preview         5/5,  ~4 s
+//   gemini-flash-latest            5/5,  ~16 s (lento)
+//   gemini-3.1-flash-lite-preview  4/5,  confundió local y visitante en Chivas-Toluca
+export const AJUSTES_ESCANER = {
+  modelos: ['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-flash-latest', 'gemini-3.1-flash-lite-preview'],
+  pensamiento: 0,
+};
+
+/**
+ * Manda el escaneo probando cada modelo hasta que uno responda.
+ * Solo cambia de modelo cuando el error viene de Gemini; otros errores (sin conexión, falta la llave) se lanzan tal cual.
+ * Regresa la respuesta del servidor más el modelo que la dio.
+ */
+export async function escanearConRespaldo(enviar, datos, ajustes = AJUSTES_ESCANER) {
+  let ultimoError;
+  for (const modelo of ajustes.modelos) {
+    try {
+      const res = await enviar({ ...datos, modelo, pensamiento: ajustes.pensamiento });
+      return { ...res, modelo };
+    } catch (e) {
+      if (!/^Gemini/.test(e.message)) throw e;
+      ultimoError = e;
+    }
+  }
+  throw ultimoError;
+}

@@ -1,7 +1,7 @@
 // Pantallas de la app. Los cálculos viven en liga.js y la conexión en api.js.
 import * as L from './liga.js';
 import { cargarDatos, enviar, esDemo, ClaveInvalida } from './api.js';
-import { instruccionesEscaner, ESQUEMA_ESCANER, AJUSTES_ESCANER, sinRepetirMinuto } from './escaner.js';
+import { instruccionesEscaner, ESQUEMA_ESCANER, AJUSTES_ESCANER, escanearConRespaldo, sinRepetirMinuto } from './escaner.js';
 import { interpretarDictado } from './dictado.js';
 
 const Voz = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -973,16 +973,16 @@ async function escanear(archivos) {
       jugadoresLocal: r.sugL.slice(0, 40).map((j) => j.nombre),
       jugadoresVisitante: r.sugV.slice(0, 40).map((j) => j.nombre),
     };
-    const res = await enviar('escanear', {
+    const res = await escanearConRespaldo((datos) => enviar('escanear', datos, estado.clave), {
       ...contexto,
       imagenes,
       instrucciones: instruccionesEscaner(contexto),
       esquema: ESQUEMA_ESCANER,
-      ...AJUSTES_ESCANER,
-    }, estado.clave);
+    });
     if (registro !== r) return;
     aplicarLectura(res.lectura);
-    avisar('Listo. Revisa que todo esté bien y guarda.', 'exito');
+    const respaldo = res.modelo === AJUSTES_ESCANER.modelos[0] ? '' : ` (el modelo principal estaba saturado; leí con ${res.modelo})`;
+    avisar(`Listo${respaldo}. Revisa que todo esté bien y guarda.`, 'exito');
   } catch (e) {
     avisar(e.message, 'error');
   } finally {
