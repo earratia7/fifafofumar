@@ -354,12 +354,15 @@ function escanear_(d) {
   const props = PropertiesService.getScriptProperties();
   const llave = props.getProperty('GEMINI_API_KEY');
   if (!llave) throw new Error('Falta configurar GEMINI_API_KEY en las propiedades del script.');
-  const modelo = props.getProperty('GEMINI_MODELO') || 'gemini-2.5-flash';
+  // La app puede mandar su propio modelo, instrucciones y formato de respuesta para afinar el
+  // escáner sin volver a publicar este código. Si no los manda, se usan los de aquí abajo.
+  const modeloApp = texto_(d.modelo);
+  const modelo = /^gemini-[a-z0-9.\-]+$/.test(modeloApp) ? modeloApp : (props.getProperty('GEMINI_MODELO') || 'gemini-2.5-flash');
   const imagenes = d.imagenes || [];
   if (!imagenes.length) throw new Error('No llegó ninguna foto.');
 
   const lista = function (arr) { return (arr || []).slice(0, 60).join(', ') || '(sin historial)'; };
-  const instrucciones = [
+  const instrucciones = typeof d.instrucciones === 'string' && d.instrucciones.length < 20000 ? d.instrucciones : [
     'Eres un asistente que lee capturas o fotos de la pantalla de resumen de un partido de EA SPORTS FC.',
     'El partido es: LOCAL = "' + texto_(d.local) + '" contra VISITANTE = "' + texto_(d.visitante) + '".',
     'En el juego los equipos aparecen con su nombre de club, que puede no coincidir exactamente con esos nombres.',
@@ -399,7 +402,7 @@ function escanear_(d) {
     },
     required: ['jugador'],
   };
-  const esquema = {
+  const esquema = d.esquema && typeof d.esquema === 'object' ? d.esquema : {
     type: 'OBJECT',
     properties: {
       marcador_local: { type: 'INTEGER' },
@@ -420,7 +423,7 @@ function escanear_(d) {
     muteHttpExceptions: true,
     payload: JSON.stringify({
       contents: [{ role: 'user', parts: partes }],
-      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: esquema },
+      generationConfig: generacion_(esquema, d.pensamiento),
     }),
   };
 
@@ -445,6 +448,15 @@ function escanear_(d) {
   lectura.goleadores_local = sinRepetirMinuto_(lectura.goleadores_local);
   lectura.goleadores_visitante = sinRepetirMinuto_(lectura.goleadores_visitante);
   return { lectura: lectura };
+}
+
+/** Configuración de Gemini. pensamiento = cuánto "piensa" antes de responder (más = más lento y cuidadoso). */
+function generacion_(esquema, pensamiento) {
+  const config = { temperature: 0, responseMimeType: 'application/json', responseSchema: esquema };
+  if (pensamiento !== undefined && pensamiento !== null && !isNaN(parseInt(pensamiento, 10))) {
+    config.thinkingConfig = { thinkingBudget: parseInt(pensamiento, 10) };
+  }
+  return config;
 }
 
 /** Quita goles del mismo lado con el mismo minuto: son la misma jugada vista en dos fotos. */

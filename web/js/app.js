@@ -1,6 +1,7 @@
 // Pantallas de la app. Los cálculos viven en liga.js y la conexión en api.js.
 import * as L from './liga.js';
 import { cargarDatos, enviar, esDemo, ClaveInvalida } from './api.js';
+import { instruccionesEscaner, ESQUEMA_ESCANER, AJUSTES_ESCANER, sinRepetirMinuto } from './escaner.js';
 
 const $ = (selector, raiz = document) => raiz.querySelector(selector);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -802,12 +803,18 @@ async function escanear(archivos) {
   try {
     const imagenes = await Promise.all([...archivos].slice(0, 4).map(reducirImagen));
     const describir = (f) => `${f.club || f.nombre} (manager ${f.manager})`;
-    const res = await enviar('escanear', {
-      imagenes,
+    const contexto = {
       local: describir(r.fl),
       visitante: describir(r.fv),
       jugadoresLocal: r.sugL.slice(0, 40).map((j) => j.nombre),
       jugadoresVisitante: r.sugV.slice(0, 40).map((j) => j.nombre),
+    };
+    const res = await enviar('escanear', {
+      ...contexto,
+      imagenes,
+      instrucciones: instruccionesEscaner(contexto),
+      esquema: ESQUEMA_ESCANER,
+      ...AJUSTES_ESCANER,
     }, estado.clave);
     if (registro !== r) return;
     aplicarLectura(res.lectura);
@@ -837,8 +844,8 @@ function aplicarLectura(lectura) {
   // El marcador del encabezado manda; los goleadores se acomodan a él, nunca al revés.
   r.gl = numero(lectura.marcador_local, lectura.goles_local);
   r.gv = numero(lectura.marcador_visitante, lectura.goles_visitante);
-  const leidosL = ajustar(lectura.goleadores_local, r.sugL);
-  const leidosV = ajustar(lectura.goleadores_visitante, r.sugV);
+  const leidosL = ajustar(sinRepetirMinuto(lectura.goleadores_local), r.sugL);
+  const leidosV = ajustar(sinRepetirMinuto(lectura.goleadores_visitante), r.sugV);
   r.leidosL = [...new Set(leidosL)];
   r.leidosV = [...new Set(leidosV)];
   r.golesL = leidosL.slice(0, r.gl);
