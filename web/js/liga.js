@@ -54,7 +54,7 @@ export function separarEquipo(nombre) {
 /** Quita acentos, puntos y mayúsculas para comparar nombres de jugadores. */
 export function normalizarNombre(t) {
   return texto(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/\./g, ' ').replace(/['’`´]/g, '').replace(/\s+/g, ' ').trim();
+    .replace(/[.\-–]/g, ' ').replace(/['’`´]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 /** Un goleador "A", "." o vacío es un relleno, no un jugador real. */

@@ -2,6 +2,10 @@
 import * as L from './liga.js';
 import { cargarDatos, enviar, esDemo, ClaveInvalida } from './api.js';
 import { instruccionesEscaner, ESQUEMA_ESCANER, AJUSTES_ESCANER, sinRepetirMinuto } from './escaner.js';
+import { interpretarDictado } from './dictado.js';
+
+const Voz = window.SpeechRecognition || window.webkitSpeechRecognition;
+let reconocedor = null;
 
 const $ = (selector, raiz = document) => raiz.querySelector(selector);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -477,6 +481,7 @@ function ocultarHoja() {
   $('#hoja-fondo').hidden = true;
   $('#hoja').innerHTML = '';
   document.body.classList.remove('sin-scroll');
+  if (reconocedor) reconocedor.abort();
   registro = null;
   nuevoTorneo = null;
 }
@@ -588,6 +593,10 @@ function abrirRegistro(datos, anterior = null) {
     toma: anterior?.refuerzo?.toma || '',
     cede: anterior?.refuerzo?.cede || 'J.G.',
     escaneando: false,
+    dictando: false,
+    escuchando: false,
+    dictado: '',
+    origen: '',
     guardando: false,
     dudas: '',
     sugL: L.jugadoresDelManager(liga, datos.torneo, fl.manager),
@@ -625,7 +634,7 @@ function bloqueGoleadores(lado) {
   const llenos = goles.filter((g) => g.trim()).length;
   return `<div class="goleadores-bloque">
     <h3>${esc(f.emoji)} Goles de ${esc(f.manager || f.nombre)} <small>${llenos} de ${goles.length}</small></h3>
-    ${sug.length ? `<div class="chips">${sug.map((j) => `<button class="chip ${j.leido ? 'leido' : j.delTorneo ? '' : 'historico'}" data-accion="chip" data-lado="${lado}" data-nombre="${esc(j.nombre)}">${j.leido ? '📸 ' : ''}${esc(j.nombre)}</button>`).join('')}
+    ${sug.length ? `<div class="chips">${sug.map((j) => `<button class="chip ${j.leido ? 'leido' : j.delTorneo ? '' : 'historico'}" data-accion="chip" data-lado="${lado}" data-nombre="${esc(j.nombre)}">${j.leido ? `${r.origen || '📸'} ` : ''}${esc(j.nombre)}</button>`).join('')}
       <button class="chip" data-accion="chip" data-lado="${lado}" data-nombre="Autogol">Autogol</button></div>` : ''}
     ${goles.map((g, i) => `
       <div class="gol-fila"><span class="num">${i + 1}</span>
@@ -661,13 +670,29 @@ function renderRegistro() {
   };
   const ganador = ganadorRegistro();
 
+  const ejemplo = `${r.fv.club || r.fv.manager} dos, ${r.fl.club || r.fl.manager} uno.${r.conGoleadores ? ` Goles de ${r.fv.club || r.fv.manager}: … y …. Gol de ${r.fl.club || r.fl.manager}: …` : ''}`;
   let cuerpo = `
-    <label class="escaner ${r.escaneando ? 'trabajando' : ''}">
-      <span class="icono">${r.escaneando ? '⏳' : '📸'}</span>
-      <span><b>${r.escaneando ? 'Leyendo la foto…' : 'Escanear pantalla del resultado'}</b>
-      <small>${r.escaneando ? 'Esto tarda unos segundos.' : `Toma foto o elige la captura del resumen. Llenamos ${r.conGoleadores ? 'marcador y goleadores' : 'el marcador'}; tú solo revisas.`}</small></span>
-      <input type="file" accept="image/*" multiple data-campo="fotos" ${r.escaneando ? 'disabled' : ''}>
-    </label>
+    <div class="formas-captura">
+      <label class="escaner ${r.escaneando ? 'trabajando' : ''}">
+        <span class="icono">${r.escaneando ? '⏳' : '📸'}</span>
+        <span><b>${r.escaneando ? 'Leyendo…' : 'Escanear'}</b><small>${r.escaneando ? 'Unos segundos' : 'Fotos de Eventos'}</small></span>
+        <input type="file" accept="image/*" multiple data-campo="fotos" ${r.escaneando ? 'disabled' : ''}>
+      </label>
+      <button class="escaner ${r.dictando ? 'abierto' : ''}" data-accion="abrir-dictado">
+        <span class="icono">🎤</span>
+        <span><b>Dictar</b><small>Dilo con tu voz</small></span>
+      </button>
+    </div>
+    ${r.dictando ? `<div class="dictado">
+      <textarea id="texto-dictado" class="entrada area" data-campo="dictado" rows="3" placeholder="Ej.: ${esc(ejemplo)}">${esc(r.dictado)}</textarea>
+      <div class="botones">
+        ${Voz
+          ? `<button class="boton chico ${r.escuchando ? 'peligro' : 'secundario'}" data-accion="escuchar">${r.escuchando ? '⏹ Detener' : '🎤 Hablar'}</button>`
+          : '<span class="nota" style="margin:0;align-self:center">Usa el 🎤 de tu teclado</span>'}
+        <button class="boton chico principal" data-accion="aplicar-dictado" ${r.escuchando ? 'disabled' : ''}>✔ Llenar</button>
+      </div>
+      <p class="nota" style="margin:8px 0 0">Di el marcador y luego los goles de cada equipo. Puedes usar el club o el manager, y “doblete” o “Kane dos”. ${r.escuchando ? '<b>Escuchando…</b>' : ''}</p>
+    </div>` : ''}
     ${r.dudas ? `<div class="recuadro amarillo" style="white-space:pre-line">${esc(r.dudas)}</div>` : ''}
     <div class="captura">
       <div class="lado">${equipoHTML(r.fl)}${contador('L')}</div>
@@ -794,6 +819,72 @@ function reducirImagen(archivo) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Dictado por voz (sin IA: se interpreta con lo que la app ya sabe del partido)
+// ---------------------------------------------------------------------------
+
+function escuchar() {
+  if (reconocedor) {
+    reconocedor.stop();
+    return;
+  }
+  const r = registro;
+  reconocedor = new Voz();
+  reconocedor.lang = 'es-MX';
+  reconocedor.continuous = true;
+  reconocedor.interimResults = true;
+  const previo = r.dictado.trim() ? `${r.dictado.trim()} ` : '';
+  reconocedor.onresult = (ev) => {
+    r.dictado = previo + [...ev.results].map((x) => x[0].transcript).join(' ');
+    const caja = $('#texto-dictado');
+    if (caja) caja.value = r.dictado;
+  };
+  reconocedor.onerror = (ev) => {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') avisar('Permite el micrófono para esta página, o usa el 🎤 de tu teclado.', 'error');
+    else if (!['no-speech', 'aborted'].includes(ev.error)) avisar(`No pude escuchar (${ev.error}). Usa el 🎤 de tu teclado.`, 'error');
+  };
+  reconocedor.onend = () => {
+    reconocedor = null;
+    if (registro !== r) return;
+    r.escuchando = false;
+    if (r.dictado.trim()) aplicarDictado();
+    else renderRegistro();
+  };
+  try {
+    reconocedor.start();
+    r.escuchando = true;
+  } catch {
+    reconocedor = null;
+    avisar('No pude usar el micrófono. Usa el 🎤 de tu teclado.', 'error');
+  }
+  renderRegistro();
+}
+
+function aplicarDictado() {
+  const r = registro;
+  if (!r || !r.dictado.trim()) return avisar('Primero dicta o escribe el resultado.', 'error');
+  const equipo = (f, sug) => ({ club: f.club, manager: f.manager, jugadores: sug.map((j) => j.nombre) });
+  const res = interpretarDictado(r.dictado, [equipo(r.fl, r.sugL), equipo(r.fv, r.sugV)], r.todos);
+  if (res.marcador.every((x) => x === null) && !res.goles.flat().length) {
+    r.dudas = res.avisos.join('\n');
+    return renderRegistro();
+  }
+  r.wo = false;
+  r.origen = '🎤';
+  if (res.marcador[0] !== null) r.gl = res.marcador[0];
+  if (res.marcador[1] !== null) r.gv = res.marcador[1];
+  if (r.conGoleadores) {
+    r.leidosL = [...new Set(res.goles[0])];
+    r.leidosV = [...new Set(res.goles[1])];
+    r.golesL = res.goles[0].slice(0, r.gl);
+    r.golesV = res.goles[1].slice(0, r.gv);
+  }
+  ajustarGoles();
+  r.dudas = res.avisos.join('\n');
+  renderRegistro();
+  avisar('Listo. Revisa que todo esté bien y guarda.', 'exito');
+}
+
 async function escanear(archivos) {
   const r = registro;
   if (!archivos.length || !r) return;
@@ -857,6 +948,7 @@ function aplicarLectura(lectura) {
   revisar(leidosL, r.gl, r.fl);
   revisar(leidosV, r.gv, r.fv);
   ajustarGoles();
+  r.origen = '📸';
   if (lectura.dudas) notas.push(`🤖 ${lectura.dudas}`);
   r.dudas = notas.join('\n');
 }
@@ -1090,6 +1182,13 @@ document.addEventListener('click', (ev) => {
       registro.ganadorWo = d.lado;
       return renderRegistro();
     case 'guardar-resultado': return guardarResultado();
+    case 'abrir-dictado':
+      registro.dictando = !registro.dictando;
+      renderRegistro();
+      if (registro.dictando) setTimeout(() => $('#texto-dictado')?.focus(), 50);
+      return undefined;
+    case 'escuchar': return escuchar();
+    case 'aplicar-dictado': return aplicarDictado();
     case 'historia':
       estado.historia = d.pestana;
       return render();
@@ -1146,7 +1245,8 @@ document.addEventListener('input', (ev) => {
     (lado === 'L' ? registro.golesL : registro.golesV)[Number(i)] = el.value;
     const caja = document.getElementById(`sug-${lado}-${i}`);
     if (caja) caja.innerHTML = sugerenciaHTML(lado, Number(i), el.value);
-  } else if (campo === 'toma' && registro) registro.toma = el.value;
+  } else if (campo === 'dictado' && registro) registro.dictado = el.value;
+  else if (campo === 'toma' && registro) registro.toma = el.value;
   else if (campo === 'cede' && registro) registro.cede = el.value;
   else if (campo === 'nt-nombre') nuevoTorneo.nombre = el.value;
   else if (campo === 'nt-club') nuevoTorneo.equipos[Number(el.dataset.i)].club = el.value;
