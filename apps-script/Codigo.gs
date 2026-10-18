@@ -90,6 +90,7 @@ const ACCIONES_ = {
   ajustarTorneo: ajustarTorneo_,
   guardarManager: guardarManager_,
   escanear: escanear_,
+  importarHistorico: importarHistorico_,
 };
 
 function responder_(fn) {
@@ -323,6 +324,33 @@ function editarRefuerzo_(d) {
       return { datos: leerTodo_() };
     }
     if (toma) agregarFilas_('Transferencias', [{ Torneo: p.torneo, Jornada: p.jornada, Equipo: equipo, Toma: toma, Cede: cede }]);
+    return { datos: leerTodo_() };
+  });
+}
+
+/**
+ * Carga de un jalón un torneo ya terminado (equipos, tabla, partidos, goleadores y refuerzos).
+ * Solo acepta torneos archivados. Con reemplazar: true borra antes lo que hubiera de ese torneo,
+ * pero nunca toca un torneo activo.
+ */
+function importarHistorico_(d) {
+  const torneo = texto_(d.torneo);
+  const filas = d.filas || {};
+  const hojas = ['Equipos', 'Torneos', 'Partidos', 'Goleadores', 'Transferencias'];
+  if (!torneo) throw new Error('Falta el torneo.');
+  hojas.forEach(function (h) {
+    if (!Array.isArray(filas[h])) throw new Error('Faltan las filas de ' + h + '.');
+    if (filas[h].some(function (f) { return texto_(f.Torneo) !== torneo; })) throw new Error('Hay filas de otro torneo en ' + h + '.');
+  });
+  if (filas.Equipos.some(function (e) { return texto_(e.Estado) !== 'Archivado'; })) throw new Error('Solo se importan torneos archivados.');
+  return conCandado_(function () {
+    const anteriores = leerHoja_('Equipos').filter(function (e) { return texto_(e.Torneo) === torneo; });
+    if (anteriores.length) {
+      if (!d.reemplazar) throw new Error('Ya existe un torneo con ese nombre.');
+      if (anteriores.some(function (e) { return texto_(e.Estado) !== 'Archivado'; })) throw new Error('No se reemplaza un torneo activo.');
+      hojas.forEach(function (h) { borrarFilas_(h, function (f) { return texto_(f.Torneo) === torneo; }); });
+    }
+    hojas.forEach(function (h) { agregarFilas_(h, filas[h]); });
     return { datos: leerTodo_() };
   });
 }

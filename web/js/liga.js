@@ -94,6 +94,12 @@ export function construirLiga(crudo) {
     t.porEquipo.set(equipo, ficha);
     if (texto(r.Estado).toLowerCase() === 'archivado') t.archivado = true;
   }
+  // Cronología: primero los archivados por nombre en orden natural (FC26#2 antes que FC26#10), aunque
+  // en la hoja se hayan agregado después (ej. torneos históricos importados); luego los activos.
+  const ordenados = [...torneos.values()].sort((a, b) => (a.archivado !== b.archivado ? (a.archivado ? -1 : 1)
+    : a.archivado ? a.nombre.localeCompare(b.nombre, 'es', { numeric: true }) : a.orden - b.orden));
+  torneos.clear();
+  ordenados.forEach((t, i) => { t.orden = i; torneos.set(t.nombre, t); });
 
   const partidos = (crudo.Partidos || []).map((r, i) => {
     const jornada = texto(r.Jornada);
