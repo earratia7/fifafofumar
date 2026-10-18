@@ -97,9 +97,11 @@ export const AJUSTES_ESCANER = {
  */
 export async function escanearConRespaldo(enviar, datos, ajustes = AJUSTES_ESCANER) {
   let ultimoError;
-  for (const modelo of ajustes.modelos) {
+  for (const [i, modelo] of ajustes.modelos.entries()) {
+    // Mientras haya otro modelo de respaldo, el servidor no reintenta: es más rápido brincar al siguiente.
+    const reintentos = i < ajustes.modelos.length - 1 ? 1 : 3;
     try {
-      const res = await enviar({ ...datos, modelo, pensamiento: ajustes.pensamiento });
+      const res = await enviar({ ...datos, modelo, pensamiento: ajustes.pensamiento, reintentos });
       return { ...res, modelo };
     } catch (e) {
       if (!/^Gemini/.test(e.message)) throw e;

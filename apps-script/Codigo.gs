@@ -493,12 +493,14 @@ function escanear_(d) {
     }),
   };
 
+  // La app manda reintentos: 1 cuando tiene otro modelo de respaldo, para no esperar de más.
+  const reintentos = Math.min(Math.max(parseInt(d.reintentos, 10) || 3, 1), 3);
   let respuesta;
-  for (let intento = 1; intento <= 3; intento++) {
+  for (let intento = 1; intento <= reintentos; intento++) {
     respuesta = UrlFetchApp.fetch(url, peticion);
     const codigo = respuesta.getResponseCode();
     if (codigo === 200) break;
-    if ((codigo === 429 || codigo >= 500) && intento < 3) {
+    if ((codigo === 429 || codigo >= 500) && intento < reintentos) {
       Utilities.sleep(4000 * intento);
       continue;
     }
