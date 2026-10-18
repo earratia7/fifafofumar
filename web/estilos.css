@@ -55,9 +55,7 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
   border-bottom: 1px solid rgba(39, 49, 71, 0.6);
 }
 .marca { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.marca-logo { font-size: 20px; }
-.marca-texto { font-family: var(--numeros); font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
-.marca-texto b { color: var(--naranja); font-weight: 800; }
+.marca-logo { display: block; height: 40px; width: auto; }
 
 .selector-torneo {
   flex: 1; min-width: 0;
@@ -445,8 +443,18 @@ select.entrada {
 .aviso.exito { background: #0f3326; border-color: var(--verde); }
 
 .cargando-pantalla { min-height: 60dvh; display: grid; place-content: center; text-align: center; color: var(--tenue); }
-.balon { font-size: 44px; animation: rebotar 0.9s ease-in-out infinite alternate; }
-@keyframes rebotar { to { transform: translateY(-14px) rotate(180deg); } }
+.escudo-carga { width: 120px; height: auto; margin: 0 auto 10px; animation: latir 1.4s ease-in-out infinite; }
+@keyframes latir { 50% { transform: scale(1.06); filter: drop-shadow(0 0 18px rgba(255, 159, 28, 0.35)); } }
+.escudo-grande { display: block; width: 150px; height: auto; margin: 0 auto 14px; }
+.firma { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 22px 0 4px; color: var(--tenue); font-size: 12px; }
+.firma img { width: 44px; height: auto; opacity: 0.9; }
+.firma p { margin: 0; }
+.firma b { color: var(--texto); }
+.salon { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 14px; border-radius: var(--radio);
+  background: linear-gradient(135deg, rgba(255, 207, 77, 0.14), rgba(46, 229, 157, 0.06)); border: 1px solid rgba(255, 207, 77, 0.3); }
+.salon img { width: 44px; height: auto; }
+.salon b { display: block; font-size: 16px; }
+.salon small { color: var(--tenue); font-size: 12px; }
 
 .demo { margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; background: rgba(255, 209, 102, 0.12); color: var(--amarillo); font-size: 12px; text-align: center; }
 

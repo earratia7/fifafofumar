@@ -88,8 +88,8 @@ function pantallaSinAcceso() {
   $('#nombre-torneo').textContent = 'Sin acceso';
   $('#vista').innerHTML = `
     <div class="vacio">
-      <span class="grande">🔒</span>
-      <b>Necesitas el enlace de la liga</b>
+      <img src="logo-escudo.png" alt="FifafoFumar" class="escudo-grande" width="150" height="170">
+      <b>🔒 Necesitas el enlace de la liga</b>
       <p>Pídele el enlace completo a quien administra el torneo y ábrelo desde este celular. Solo hay que hacerlo una vez.</p>
     </div>`;
 }
@@ -382,8 +382,9 @@ function historiaDuelos(liga) {
 
 function historiaPalmares(liga) {
   const lista = L.palmares(liga);
+  const encabezado = `<div class="salon"><img src="logo-escudo.png" alt="" width="56" height="64"><div><b>Salón de la fama</b><small>${lista.length} torneo(s) terminados</small></div></div>`;
   if (!lista.length) return vacio('🏆', 'Todavía no hay torneos archivados. Al terminar un torneo, archívalo en <b>Más</b> para que aparezca aquí.');
-  return lista.map((p) => `
+  return encabezado + lista.map((p) => `
     <div class="tarjeta palmares-tarjeta">
       <div class="encabezado"><div><b>${esc(p.torneo)}</b><small class="nota" style="display:block;margin:0">${L.iconoTipo(p.tipo)} ${esc(p.tipo)}</small></div><span class="etiqueta">${p.jugados} partidos</span></div>
       <div class="podio">
@@ -448,7 +449,10 @@ function vistaMas(liga, t) {
       <b>📲 Tenerla como app en tu celular</b>
       <p class="nota"><b>iPhone (Safari):</b> botón Compartir → “Agregar a inicio”.<br><b>Android (Chrome):</b> menú ⋮ → “Agregar a la pantalla principal”.</p>
     </div>
-    <p class="nota" style="text-align:center">Datos de Google Sheets${estado.actualizado ? ` · actualizado ${hora(estado.actualizado)}` : ''}</p>`;
+    <div class="firma">
+      <img src="logo-escudo.png" alt="" width="64" height="72">
+      <p><b>FifafoFumar</b> · desde MMXII (2012)<br>Datos de Google Sheets${estado.actualizado ? ` · actualizado ${hora(estado.actualizado)}` : ''}</p>
+    </div>`;
   return html;
 }
 
