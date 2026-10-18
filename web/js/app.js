@@ -35,15 +35,24 @@ let nuevoTorneo = null;   // formulario de torneo nuevo en curso
 // Arranque y datos
 // ---------------------------------------------------------------------------
 
+/** Saca la clave de un enlace completo de la liga o de la clave sola. */
+function claveDeTexto(texto) {
+  const t = String(texto || '').trim();
+  const m = t.match(/[#&?]k=([^&\s]+)/);
+  return m ? decodeURIComponent(m[1]) : /^[\w-]{6,}$/.test(t) ? t : '';
+}
+
+// La clave se queda en la dirección (#k=...): en iPhone, "Agregar a inicio" usa esa dirección y la
+// app instalada guarda sus datos aparte de Safari, así que sin la clave en el enlace no podría entrar.
 function leerClave() {
-  const m = location.hash.match(/k=([^&]+)/);
-  if (m) {
-    const clave = decodeURIComponent(m[1]);
-    guardarLocal(LLAVES.clave, clave);
-    history.replaceState(null, '', location.pathname + location.search);
-    return clave;
+  const enEnlace = claveDeTexto(location.hash);
+  if (enEnlace) {
+    guardarLocal(LLAVES.clave, enEnlace);
+    return enEnlace;
   }
-  return leerLocal(LLAVES.clave) || '';
+  const guardada = leerLocal(LLAVES.clave) || '';
+  if (guardada) history.replaceState(null, '', `${location.pathname}${location.search}#k=${encodeURIComponent(guardada)}`);
+  return guardada;
 }
 
 async function iniciar() {
@@ -90,8 +99,18 @@ function pantallaSinAcceso() {
     <div class="vacio">
       <img src="logo-escudo.png" alt="FifafoFumar" class="escudo-grande" width="150" height="170">
       <b>🔒 Necesitas el enlace de la liga</b>
-      <p>Pídele el enlace completo a quien administra el torneo y ábrelo desde este celular. Solo hay que hacerlo una vez.</p>
+      <p>Pega aquí el enlace completo que te compartieron (o solo la clave). Solo hay que hacerlo una vez en este celular.</p>
+      <input class="entrada" id="enlace-liga" placeholder="https://…/#k=…" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin:6px 0 10px">
+      <button class="boton principal" data-accion="entrar-con-enlace">Entrar</button>
     </div>`;
+}
+
+function entrarConEnlace() {
+  const clave = claveDeTexto($('#enlace-liga')?.value);
+  if (!clave) return avisar('Ese texto no parece el enlace de la liga. Debe terminar en #k=…', 'error');
+  guardarLocal(LLAVES.clave, clave);
+  history.replaceState(null, '', `${location.pathname}${location.search}#k=${encodeURIComponent(clave)}`);
+  location.reload();
 }
 
 
@@ -1291,6 +1310,7 @@ document.addEventListener('click', (ev) => {
     }
     case 'cambiar-estado': return cambiarEstadoTorneo();
     case 'compartir': return compartir();
+    case 'entrar-con-enlace': return entrarConEnlace();
     case 'ver-refuerzos':
       estado.verRefuerzos = true;
       return render();
