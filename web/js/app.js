@@ -616,16 +616,20 @@ function bloqueGoleadores(lado) {
   const r = registro;
   const f = lado === 'L' ? r.fl : r.fv;
   const goles = lado === 'L' ? r.golesL : r.golesV;
-  const sug = (lado === 'L' ? r.sugL : r.sugV).slice(0, 8);
+  const leidos = (lado === 'L' ? r.leidosL : r.leidosV) || [];
+  const sug = [
+    ...leidos.map((nombre) => ({ nombre, delTorneo: true, leido: true })),
+    ...(lado === 'L' ? r.sugL : r.sugV).filter((j) => !leidos.some((n) => L.normalizarNombre(n) === L.normalizarNombre(j.nombre))),
+  ].slice(0, Math.max(8, leidos.length + 4));
   const llenos = goles.filter((g) => g.trim()).length;
   return `<div class="goleadores-bloque">
     <h3>${esc(f.emoji)} Goles de ${esc(f.manager || f.nombre)} <small>${llenos} de ${goles.length}</small></h3>
-    ${sug.length ? `<div class="chips">${sug.map((j) => `<button class="chip ${j.delTorneo ? '' : 'historico'}" data-accion="chip" data-lado="${lado}" data-nombre="${esc(j.nombre)}">${esc(j.nombre)}</button>`).join('')}
+    ${sug.length ? `<div class="chips">${sug.map((j) => `<button class="chip ${j.leido ? 'leido' : j.delTorneo ? '' : 'historico'}" data-accion="chip" data-lado="${lado}" data-nombre="${esc(j.nombre)}">${j.leido ? '📸 ' : ''}${esc(j.nombre)}</button>`).join('')}
       <button class="chip" data-accion="chip" data-lado="${lado}" data-nombre="Autogol">Autogol</button></div>` : ''}
     ${goles.map((g, i) => `
       <div class="gol-fila"><span class="num">${i + 1}</span>
         <input class="entrada" data-campo="gol" data-lado="${lado}" data-i="${i}" value="${esc(g)}" placeholder="¿Quién anotó?" list="jugadores-${lado}" autocomplete="off" autocapitalize="words">
-        <button class="quitar" data-accion="quitar-gol" data-lado="${lado}" data-i="${i}" aria-label="Quitar gol">✕</button>
+        <button class="quitar" data-accion="quitar-gol" data-lado="${lado}" data-i="${i}" aria-label="Borrar nombre">✕</button>
       </div>
       <div class="sugerencia" id="sug-${lado}-${i}">${sugerenciaHTML(lado, i, g)}</div>`).join('')}
     <datalist id="jugadores-${lado}">${[...new Set([...(lado === 'L' ? r.sugL : r.sugV).map((j) => j.nombre), ...r.todos])].map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
@@ -663,7 +667,7 @@ function renderRegistro() {
       <small>${r.escaneando ? 'Esto tarda unos segundos.' : `Toma foto o elige la captura del resumen. Llenamos ${r.conGoleadores ? 'marcador y goleadores' : 'el marcador'}; tú solo revisas.`}</small></span>
       <input type="file" accept="image/*" multiple data-campo="fotos" ${r.escaneando ? 'disabled' : ''}>
     </label>
-    ${r.dudas ? `<div class="recuadro amarillo">🤖 ${esc(r.dudas)}</div>` : ''}
+    ${r.dudas ? `<div class="recuadro amarillo" style="white-space:pre-line">${esc(r.dudas)}</div>` : ''}
     <div class="captura">
       <div class="lado">${equipoHTML(r.fl)}${contador('L')}</div>
       <div class="lado">${equipoHTML(r.fv)}${contador('V')}</div>
@@ -720,11 +724,9 @@ function tocarChip(lado, nombre) {
   renderRegistro();
 }
 
+/** Vacía la casilla sin tocar el marcador: así se cambia un goleador por otro. Para quitar el gol se usa −. */
 function quitarGol(lado, i) {
-  const r = registro;
-  const lista = lado === 'L' ? r.golesL : r.golesV;
-  lista.splice(i, 1);
-  r[lado === 'L' ? 'gl' : 'gv'] = lista.length;
+  (lado === 'L' ? registro.golesL : registro.golesV)[i] = '';
   renderRegistro();
 }
 
@@ -830,15 +832,26 @@ function aplicarLectura(lectura) {
     const res = L.buscarParecido(nombre, [...propios.map((j) => j.nombre), ...r.todos]);
     return res.tipo === 'nuevo' ? nombre : res.nombre;
   });
+  const numero = (...v) => Math.max(0, parseInt(v.find((x) => x !== undefined && x !== null), 10) || 0);
   r.wo = false;
-  r.gl = Math.max(0, parseInt(lectura.goles_local, 10) || 0);
-  r.gv = Math.max(0, parseInt(lectura.goles_visitante, 10) || 0);
-  r.golesL = ajustar(lectura.goleadores_local, r.sugL);
-  r.golesV = ajustar(lectura.goleadores_visitante, r.sugV);
-  if (r.golesL.length !== r.gl || r.golesV.length !== r.gv) notas.push('El número de goleadores no coincide con el marcador; revisa las casillas.');
+  // El marcador del encabezado manda; los goleadores se acomodan a él, nunca al revés.
+  r.gl = numero(lectura.marcador_local, lectura.goles_local);
+  r.gv = numero(lectura.marcador_visitante, lectura.goles_visitante);
+  const leidosL = ajustar(lectura.goleadores_local, r.sugL);
+  const leidosV = ajustar(lectura.goleadores_visitante, r.sugV);
+  r.leidosL = [...new Set(leidosL)];
+  r.leidosV = [...new Set(leidosV)];
+  r.golesL = leidosL.slice(0, r.gl);
+  r.golesV = leidosV.slice(0, r.gv);
+  const revisar = (leidos, goles, f) => {
+    if (leidos.length > goles) notas.push(`⚠️ El marcador dice ${goles} de ${f.manager}, pero se leyeron ${leidos.length} goleadores (${leidos.join(', ')}). Puse los primeros ${goles}. Si alguno está mal, bórralo con ✕ y toca el correcto (marcados con 📸).`);
+    if (leidos.length < goles) notas.push(`⚠️ Faltan ${goles - leidos.length} goleador(es) de ${f.manager}: no se alcanzaron a ver en las fotos.`);
+  };
+  revisar(leidosL, r.gl, r.fl);
+  revisar(leidosV, r.gv, r.fv);
   ajustarGoles();
-  if (lectura.dudas) notas.unshift(lectura.dudas);
-  r.dudas = notas.join(' ');
+  if (lectura.dudas) notas.push(`🤖 ${lectura.dudas}`);
+  r.dudas = notas.join('\n');
 }
 
 

@@ -368,8 +368,14 @@ function escanear_(d) {
     'Jugadores que han usado antes el VISITANTE: ' + lista(d.jugadoresVisitante) + '.',
     '',
     'Reglas:',
-    '- Toma el marcador final del encabezado de la pantalla.',
+    '- marcador_local y marcador_visitante son los números grandes del encabezado (ej. "2 : 2"). Cópialos tal cual.',
+    '  NUNCA cambies el marcador para que cuadre con los goleadores: el encabezado siempre manda.',
     '- En goleadores incluye SOLO goles (icono de balón). Ignora tarjetas, cambios y lesiones.',
+    '- Las fotos suelen ser la misma pantalla desplazada: la misma jugada aparece en varias fotos.',
+    '  Un gol se identifica por su MINUTO: si dos fotos muestran un gol del mismo lado en el mismo minuto, es UN solo gol',
+    '  aunque el nombre se lea distinto; usa el nombre que se lea mejor.',
+    '- Si al final el número de goleadores de un lado no coincide con el marcador del encabezado, NO lo corrijas inventando',
+    '  ni borrando: deja los goles que veas y explica la diferencia en "dudas".',
     '- Un autogol cuenta para el equipo que lo recibe a favor; escribe el nombre como aparece y pon autogol=true.',
     '- Si un jugador anotó varias veces, repítelo una vez por gol con su minuto.',
     '- Escribe el nombre como aparece en pantalla. Si es claramente un jugador de las listas, usa el nombre de la lista.',
@@ -394,14 +400,14 @@ function escanear_(d) {
   const esquema = {
     type: 'OBJECT',
     properties: {
-      goles_local: { type: 'INTEGER' },
-      goles_visitante: { type: 'INTEGER' },
+      marcador_local: { type: 'INTEGER' },
+      marcador_visitante: { type: 'INTEGER' },
       goleadores_local: { type: 'ARRAY', items: gol },
       goleadores_visitante: { type: 'ARRAY', items: gol },
       lado_izquierdo_es_local: { type: 'BOOLEAN' },
       dudas: { type: 'STRING' },
     },
-    required: ['goles_local', 'goles_visitante', 'goleadores_local', 'goleadores_visitante'],
+    required: ['marcador_local', 'marcador_visitante', 'goleadores_local', 'goleadores_visitante'],
   };
 
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelo + ':generateContent';
@@ -433,7 +439,22 @@ function escanear_(d) {
   const textoJson = cuerpo.candidates && cuerpo.candidates[0] && cuerpo.candidates[0].content &&
     cuerpo.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('');
   if (!textoJson) throw new Error('Gemini no regresó resultado. Intenta con otra foto.');
-  return { lectura: JSON.parse(textoJson) };
+  const lectura = JSON.parse(textoJson);
+  lectura.goleadores_local = sinRepetirMinuto_(lectura.goleadores_local);
+  lectura.goleadores_visitante = sinRepetirMinuto_(lectura.goleadores_visitante);
+  return { lectura: lectura };
+}
+
+/** Quita goles del mismo lado con el mismo minuto: son la misma jugada vista en dos fotos. */
+function sinRepetirMinuto_(goles) {
+  const vistos = {};
+  return (goles || []).filter(function (g) {
+    const minuto = texto_(g.minuto).replace(/[^0-9+]/g, '');
+    if (!minuto) return true;
+    if (vistos[minuto]) return false;
+    vistos[minuto] = true;
+    return true;
+  });
 }
 
 

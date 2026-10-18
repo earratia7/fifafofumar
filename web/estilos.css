@@ -385,6 +385,7 @@ select.entrada {
   background: var(--superficie-3); border: 1px solid var(--borde);
   font-size: 13px; font-weight: 500;
 }
+.chip.leido { border-color: var(--naranja); background: var(--naranja-suave); }
 .chip.historico { background: transparent; color: var(--tenue); }
 .chip:active { background: var(--naranja); color: #1a0d00; }
 .gol-fila { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }

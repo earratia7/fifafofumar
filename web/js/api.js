@@ -98,8 +98,8 @@ const demo = {
         return {
           ok: true,
           lectura: {
-            goles_local: 2, goles_visitante: 1,
-            goleadores_local: [{ jugador: d.jugadoresLocal[0] || 'Jugador 1', minuto: "12'" }, { jugador: 'Mbape', minuto: "77'" }],
+            marcador_local: 2, marcador_visitante: 1,
+            goleadores_local: [{ jugador: d.jugadoresLocal[0] || 'Jugador 1', minuto: "12'" }, { jugador: 'Mbape', minuto: "71'" }, { jugador: d.jugadoresLocal[1] || 'Jugador 3', minuto: "80'" }],
             goleadores_visitante: [{ jugador: d.jugadoresVisitante[0] || 'Jugador 2', minuto: "40'" }],
             dudas: 'Modo demo: esta lectura es inventada para probar la pantalla.',
           },
