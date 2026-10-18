@@ -136,6 +136,10 @@ export function construirLiga(crudo) {
   }
 
   const conGoleadores = (torneo) => torneos.get(torneo)?.goleadores !== false;
+  // Orden cronológico (torneo, semana, jornada) aunque en la hoja se hayan agregado al final al corregirlos.
+  const ordenTorneo = (t) => torneos.get(t)?.orden ?? 999;
+  partidos.sort((a, b) => ordenTorneo(a.torneo) - ordenTorneo(b.torneo) || a.semana - b.semana || a.numJornada - b.numJornada || a.fila - b.fila);
+
   const liga = { torneos, partidos, goles: goles.filter((g) => conGoleadores(g.torneo)), transferencias, managersHoja };
 
   // Ficha de un equipo dentro de un torneo, aunque no esté dado de alta en Equipos.
