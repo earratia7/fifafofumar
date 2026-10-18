@@ -1080,10 +1080,15 @@ async function crearTorneo() {
   if (!nombre) return avisar('Escribe el nombre del torneo.', 'error');
   const repetidos = nt.equipos.map((e) => e.manager).filter((m, i, a) => a.indexOf(m) !== i);
   if (repetidos.length) return avisar(`${repetidos[0]} está dos veces.`, 'error');
-  const equipos = nt.equipos.map((e) => ({
-    manager: e.manager,
-    equipo: e.club.trim() ? `${e.emoji.trim()}${e.club.trim()} (${e.manager})` : `${e.emoji.trim()} ${e.manager}`,
-  }));
+  // El equipo se guarda solo con el nombre del club; el manager va en su columna y el emoji sale de Managers.
+  const equipos = nt.equipos.map((e) => ({ manager: e.manager, equipo: e.club.trim() || e.manager }));
+  const clubes = equipos.map((e) => e.equipo.toLowerCase());
+  const clubRepetido = clubes.find((c, i) => clubes.indexOf(c) !== i);
+  if (clubRepetido) return avisar(`Dos equipos se llaman “${clubRepetido}”. Cambia uno.`, 'error');
+  for (const e of nt.equipos) {
+    const actual = estado.liga.managers.get(e.manager)?.emoji || '';
+    if (e.emoji.trim() && e.emoji.trim() !== actual) await enviar('guardarManager', { manager: e.manager, emoji: e.emoji.trim() }, estado.clave);
+  }
   try {
     const activos = L.torneosOrdenados(estado.liga).filter((t) => !t.archivado).map((t) => t.nombre);
     let r = await enviar('crearTorneo', { torneo: nombre, equipos, tipo: nt.tipo, semanas: nt.semanas, goleadores: nt.goleadores }, estado.clave);

@@ -83,8 +83,13 @@ export function construirLiga(crudo) {
     }
     const t = torneos.get(nombreTorneo);
     const info = separarEquipo(equipo);
-    const manager = esDescanso(equipo) ? '' : normalizarManager(r.Manager) || info.manager;
-    const ficha = { nombre: equipo, emoji: info.emoji, club: info.club, manager, descanso: esDescanso(equipo) };
+    const delaColumna = esDescanso(equipo) ? '' : normalizarManager(r.Manager);
+    const manager = delaColumna || info.manager;
+    // Si la columna Manager trae otro nombre, todo el texto es el club ("Toluca" con manager Perrito).
+    const club = !delaColumna || delaColumna === info.manager ? info.club : [info.manager, info.club].filter(Boolean).join(' ');
+    // Sin emoji en el nombre, se usa el del manager (hoja Managers).
+    const emoji = info.emoji || managersHoja.get(manager)?.emoji || '';
+    const ficha = { nombre: equipo, emoji, club, manager, descanso: esDescanso(equipo) };
     t.equipos.push(ficha);
     t.porEquipo.set(equipo, ficha);
     if (texto(r.Estado).toLowerCase() === 'archivado') t.archivado = true;
