@@ -7,6 +7,10 @@ App para llevar la liga de EA SPORTS FC: calendario, resultados, tablas, goleo e
 
 La página no guarda ninguna llave. La clave de acceso viaja en el enlace de la liga (`#k=...`), y las llaves de Gemini y de la hoja se quedan dentro de Google.
 
+## Tipos de torneo
+
+Torneo Clásico (6 semanas), Torneo Cinco Estrellas (5), Copa La Onza (4) y Torneo Relámpago (3 o 2). El tipo se puede cambiar con el torneo en curso, siempre que no se pierdan semanas con resultados guardados.
+
 ## Hojas del Google Sheet
 
 | Hoja | Columnas |
@@ -16,7 +20,7 @@ La página no guarda ninguna llave. La clave de acceso viaja en el enlace de la 
 | Goleadores | Torneo, Jornada, Equipo, Jugador, Goles |
 | Transferencias | Torneo, Jornada, Equipo, Toma, Cede |
 | Managers | Manager, Emoji |
-| Torneos | Torneo, Semanas, Goleadores |
+| Torneos | Torneo, Tipo, Semanas, Goleadores |
 
 La función `configurarHoja` crea las columnas y hojas nuevas y las llena con los datos que ya existen.
 

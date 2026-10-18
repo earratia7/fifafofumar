@@ -451,3 +451,6 @@ select.entrada {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.tipos .fila:disabled { cursor: default; }
+.tipos .fila:disabled:not(.activa) { opacity: 0.45; }

@@ -2,6 +2,23 @@
 
 export const DESCANSO = 'Descanso';
 export const SEMANAS_DEFAULT = 6;
+
+// Tipos de torneo. El Relámpago puede durar 3 o 2 semanas.
+export const TIPOS = [
+  { nombre: 'Torneo Clásico', icono: '🏆', semanas: [6] },
+  { nombre: 'Torneo Cinco Estrellas', icono: '⭐', semanas: [5] },
+  { nombre: 'Copa La Onza', icono: '🏅', semanas: [4] },
+  { nombre: 'Torneo Relámpago', icono: '⚡', semanas: [3, 2] },
+];
+
+/** Todas las combinaciones que se pueden elegir: una por tipo y duración. */
+export const OPCIONES_TORNEO = TIPOS.flatMap((t) => t.semanas.map((semanas) => ({ tipo: t.nombre, icono: t.icono, semanas })));
+
+export function tipoPorSemanas(semanas) {
+  return TIPOS.find((t) => t.semanas.includes(semanas))?.nombre || 'Especial';
+}
+
+export const iconoTipo = (nombre) => TIPOS.find((t) => t.nombre === nombre)?.icono || '🎮';
 const ALIAS_MANAGER = { pedroga: 'Pedro' };
 
 const RE_EMOJI = /^\s*(?:\p{Regional_Indicator}{2}|\p{Extended_Pictographic}(?:\p{Emoji_Modifier}|️|‍\p{Extended_Pictographic}|[\u{E0020}-\u{E007F}])*)/u;
@@ -105,8 +122,10 @@ export function construirLiga(crudo) {
   const ajustes = new Map((crudo.Torneos || []).map((r) => [texto(r.Torneo), r]));
   for (const t of torneos.values()) {
     const a = ajustes.get(t.nombre);
-    const jugadas = Math.max(0, ...partidos.filter((p) => p.torneo === t.nombre).map((p) => p.semana));
+    // Solo cuentan resultados reales: los descansos guardados no impiden acortar el torneo.
+    const jugadas = Math.max(0, ...partidos.filter((p) => p.torneo === t.nombre && !p.descanso).map((p) => p.semana));
     t.semanas = entero(a?.Semanas) || (t.archivado ? jugadas || SEMANAS_DEFAULT : Math.max(SEMANAS_DEFAULT, jugadas));
+    t.tipo = texto(a?.Tipo) || tipoPorSemanas(t.semanas);
     t.goleadores = !a || !['no', 'false', '0'].includes(texto(a.Goleadores).toLowerCase());
     t.semanasJugadas = jugadas;
   }
@@ -278,6 +297,7 @@ export function palmares(liga) {
     const maxGoles = goleo[0]?.goles || 0;
     return {
       torneo: t.nombre,
+      tipo: t.tipo,
       campeon: tabla[0] || null,
       subcampeon: tabla[1] || null,
       pichichis: goleo.filter((g) => g.goles === maxGoles && maxGoles > 0),

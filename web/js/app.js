@@ -117,6 +117,19 @@ function equipoHTML(f, clase = '') {
 
 const datosPartido = (p) => `data-jornada="${esc(p.jornada)}" data-local="${esc(p.local)}" data-visitante="${esc(p.visitante)}"`;
 
+/** Lista de tipos de torneo para elegir. minimo = semanas que ya tienen resultados. */
+function selectorTipo(accion, tipoActual, semanasActual, minimo = 0) {
+  return `<div class="lista tipos">${L.OPCIONES_TORNEO.map((o) => {
+    const elegido = o.tipo === tipoActual && o.semanas === semanasActual;
+    const bloqueado = o.semanas < minimo;
+    return `<button class="fila ${elegido ? 'activa' : ''}" data-accion="${accion}" data-tipo="${esc(o.tipo)}" data-semanas="${o.semanas}" ${bloqueado || elegido ? 'disabled' : ''}>
+      <span style="font-size:22px">${o.icono}</span>
+      <div class="principal"><b>${esc(o.tipo)}</b><small>${bloqueado ? `No disponible: ya hay resultados en la semana ${minimo}` : `${o.semanas} semanas`}</small></div>
+      ${elegido ? '<span class="etiqueta verde">Elegido</span>' : ''}
+    </button>`;
+  }).join('')}</div>`;
+}
+
 const medalla = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}`;
 
 function hora(fecha) {
@@ -367,7 +380,7 @@ function historiaPalmares(liga) {
   if (!lista.length) return vacio('🏆', 'Todavía no hay torneos archivados. Al terminar un torneo, archívalo en <b>Más</b> para que aparezca aquí.');
   return lista.map((p) => `
     <div class="tarjeta palmares-tarjeta">
-      <div class="encabezado"><b>${esc(p.torneo)}</b><span class="etiqueta">${p.jugados} partidos</span></div>
+      <div class="encabezado"><div><b>${esc(p.torneo)}</b><small class="nota" style="display:block;margin:0">${L.iconoTipo(p.tipo)} ${esc(p.tipo)}</small></div><span class="etiqueta">${p.jugados} partidos</span></div>
       <div class="podio">
         ${p.campeon ? `<div><span class="icono">🏆</span><b>${esc(p.campeon.equipo.emoji)} ${esc(p.campeon.equipo.manager)}</b><small>${p.campeon.pts} pts</small></div>` : ''}
         ${p.subcampeon ? `<div><span class="icono">🥈</span>${esc(p.subcampeon.equipo.emoji)} ${esc(p.subcampeon.equipo.manager)}<small>${p.subcampeon.pts} pts</small></div>` : ''}
@@ -395,16 +408,11 @@ function vistaMas(liga, t) {
       }).join('')}${transf.length > mostrar.length ? `<button class="fila" data-accion="ver-refuerzos"><div class="principal"><b>Ver los ${transf.length} refuerzos</b></div><span class="etiqueta">▾</span></button>` : ''}</div>`
       : '<div class="tarjeta nota" style="margin:0">Sin refuerzos registrados en este torneo.</div>';
 
-    const minimo = Math.max(1, t.semanasJugadas);
     html += `<div class="titulo-seccion">Ajustes del torneo</div><div class="tarjeta">
       <b>${esc(t.nombre)}</b> ${t.archivado ? '<span class="etiqueta">Archivado</span>' : '<span class="etiqueta verde">En curso</span>'}
-      ${t.archivado ? '' : `
-      <div class="interruptor"><span>Semanas que dura<small class="nota" style="display:block;margin:0">Ya se jugaron ${t.semanasJugadas}</small></span>
-        <div class="contador" style="margin:0">
-          <button data-accion="semanas-torneo" data-delta="-1" ${t.semanas <= minimo ? 'disabled' : ''} aria-label="Menos semanas">−</button>
-          <output style="font-size:30px">${t.semanas}</output>
-          <button data-accion="semanas-torneo" data-delta="1" ${t.semanas >= 20 ? 'disabled' : ''} aria-label="Más semanas">+</button>
-        </div></div>`}
+      <p class="nota" style="margin:4px 0 10px">${L.iconoTipo(t.tipo)} ${esc(t.tipo)} · ${t.semanas} semanas${t.archivado ? '' : ` · hay resultados hasta la semana ${t.semanasJugadas}`}</p>
+      ${t.archivado ? '' : `<p class="nota" style="margin:0 0 8px">Cambiar tipo de torneo (solo se puede acortar si no se pierden resultados):</p>
+        ${selectorTipo('tipo-torneo', t.tipo, t.semanas, t.semanasJugadas)}`}
       <label class="interruptor"><span>Registrar goleadores</span><input type="checkbox" data-campo="goleadores-torneo" ${t.goleadores ? 'checked' : ''}><span class="riel"></span></label>
       <p class="nota" style="margin:0 0 12px">${t.archivado
         ? 'Si lo reactivas se podrán volver a registrar resultados.'
@@ -488,7 +496,7 @@ function abrirElegirTorneo() {
   const lista = L.torneosOrdenados(estado.liga);
   mostrarHoja('Elegir torneo', '', `<div class="lista lista-torneos">${lista.map((t) => `
     <button class="fila ${t.nombre === estado.torneo ? 'activa' : ''}" data-accion="usar-torneo" data-torneo="${esc(t.nombre)}">
-      <div class="principal"><b>${esc(t.nombre)}</b><small>${t.equipos.filter((e) => !e.descanso).map((e) => esc(e.emoji)).join(' ')}</small></div>
+      <div class="principal"><b>${esc(t.nombre)}</b><small>${L.iconoTipo(t.tipo)} ${esc(t.tipo)} · ${t.equipos.filter((e) => !e.descanso).map((e) => esc(e.emoji)).join(' ')}</small></div>
       ${t.archivado ? '<span class="etiqueta">Archivado</span>' : '<span class="etiqueta verde">En curso</span>'}
     </button>`).join('')}</div>`);
 }
@@ -915,6 +923,7 @@ function abrirNuevoTorneo() {
   const base = ultimo ? ultimo.equipos.filter((e) => !e.descanso && e.manager) : [];
   nuevoTorneo = {
     nombre: '',
+    tipo: L.TIPOS[0].nombre,
     semanas: L.SEMANAS_DEFAULT,
     goleadores: true,
     archivarActual: true,
@@ -943,12 +952,8 @@ function renderNuevoTorneo() {
     </div>
     <button class="boton chico secundario" data-accion="nt-sortear" style="width:100%;margin-top:8px">🎲 Sortear orden</button>
     ${nt.equipos.length === 5 ? '<p class="nota">Con 5 equipos se agrega un “Descanso” automáticamente.</p>' : ''}
-    <div class="interruptor"><span>Semanas que dura<small class="nota" style="display:block;margin:0">Se puede cambiar después</small></span>
-      <div class="contador" style="margin:0">
-        <button data-accion="nt-semanas" data-delta="-1" aria-label="Menos semanas">−</button>
-        <output style="font-size:30px">${nt.semanas}</output>
-        <button data-accion="nt-semanas" data-delta="1" aria-label="Más semanas">+</button>
-      </div></div>
+    <div class="titulo-seccion">Tipo de torneo <small>se puede cambiar después</small></div>
+    ${selectorTipo('nt-tipo', nt.tipo, nt.semanas)}
     <label class="interruptor"><span>Registrar goleadores</span><input type="checkbox" data-campo="nt-goleadores" ${nt.goleadores ? 'checked' : ''}><span class="riel"></span></label>
     ${hayActivo ? `<label class="interruptor"><span>Archivar el torneo que está en curso</span><input type="checkbox" data-campo="nt-archivar" ${nt.archivarActual ? 'checked' : ''}><span class="riel"></span></label>` : ''}`;
   mostrarHoja('Nuevo torneo', '', cuerpo, '<button class="boton principal" data-accion="crear-torneo">Crear torneo</button>');
@@ -966,7 +971,7 @@ async function crearTorneo() {
   }));
   try {
     const activos = L.torneosOrdenados(estado.liga).filter((t) => !t.archivado).map((t) => t.nombre);
-    let r = await enviar('crearTorneo', { torneo: nombre, equipos, semanas: nt.semanas, goleadores: nt.goleadores }, estado.clave);
+    let r = await enviar('crearTorneo', { torneo: nombre, equipos, tipo: nt.tipo, semanas: nt.semanas, goleadores: nt.goleadores }, estado.clave);
     if (nt.archivarActual) {
       for (const t of activos) r = await enviar('cambiarEstadoTorneo', { torneo: t, estado: 'Archivado' }, estado.clave);
     }
@@ -1002,7 +1007,7 @@ async function ajustarTorneo(cambios) {
   const t = estado.liga.torneos.get(estado.torneo);
   if (!t) return;
   try {
-    const r = await enviar('ajustarTorneo', { torneo: t.nombre, semanas: t.semanas, goleadores: t.goleadores, ...cambios }, estado.clave);
+    const r = await enviar('ajustarTorneo', { torneo: t.nombre, tipo: t.tipo, semanas: t.semanas, goleadores: t.goleadores, ...cambios }, estado.clave);
     aplicarDatos(r.datos, true);
     avisar('✅ Ajuste guardado', 'exito');
   } catch (e) {
@@ -1092,12 +1097,13 @@ document.addEventListener('click', (ev) => {
       return renderNuevoTorneo();
     }
     case 'crear-torneo': return crearTorneo();
-    case 'nt-semanas':
-      nuevoTorneo.semanas = Math.min(20, Math.max(1, nuevoTorneo.semanas + Number(d.delta)));
+    case 'nt-tipo':
+      nuevoTorneo.tipo = d.tipo;
+      nuevoTorneo.semanas = Number(d.semanas);
       return renderNuevoTorneo();
-    case 'semanas-torneo': {
-      const t = estado.liga.torneos.get(estado.torneo);
-      return ajustarTorneo({ semanas: Math.min(20, Math.max(Math.max(1, t.semanasJugadas), t.semanas + Number(d.delta))) });
+    case 'tipo-torneo': {
+      if (!confirm(`¿Cambiar a ${d.tipo} de ${d.semanas} semanas?`)) return undefined;
+      return ajustarTorneo({ tipo: d.tipo, semanas: Number(d.semanas) });
     }
     case 'cambiar-estado': return cambiarEstadoTorneo();
     case 'compartir': return compartir();

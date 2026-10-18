@@ -15,10 +15,43 @@ const COLUMNAS = {
   Goleadores: ['Torneo', 'Jornada', 'Equipo', 'Jugador', 'Goles'],
   Transferencias: ['Torneo', 'Jornada', 'Equipo', 'Toma', 'Cede'],
   Managers: ['Manager', 'Emoji'],
-  Torneos: ['Torneo', 'Semanas', 'Goleadores'],
+  Torneos: ['Torneo', 'Tipo', 'Semanas', 'Goleadores'],
 };
 
+// Tipos de torneo y cuántas semanas puede durar cada uno.
+const TIPOS = [
+  { nombre: 'Torneo Clásico', semanas: [6] },
+  { nombre: 'Torneo Cinco Estrellas', semanas: [5] },
+  { nombre: 'Copa La Onza', semanas: [4] },
+  { nombre: 'Torneo Relámpago', semanas: [3, 2] },
+];
 const SEMANAS_DEFAULT = 6;
+
+function tipoPorSemanas_(semanas) {
+  const tipo = TIPOS.filter(function (t) { return t.semanas.indexOf(semanas) !== -1; })[0];
+  return tipo ? tipo.nombre : 'Especial';
+}
+
+/** Revisa que el tipo exista y admita esas semanas. Regresa { tipo, semanas }. */
+function validarTipo_(nombreTipo, semanas) {
+  const tipo = TIPOS.filter(function (t) { return t.nombre === texto_(nombreTipo); })[0];
+  if (!tipo) throw new Error('Tipo de torneo desconocido: ' + nombreTipo);
+  const s = entero_(semanas) || tipo.semanas[0];
+  if (tipo.semanas.indexOf(s) === -1) throw new Error(tipo.nombre + ' no puede durar ' + s + ' semanas.');
+  return { tipo: tipo.nombre, semanas: s };
+}
+
+/** Última semana del torneo con algún resultado real guardado (sin contar descansos). */
+function ultimaSemanaJugada_(torneo) {
+  let maxima = 0;
+  leerHoja_('Partidos').forEach(function (p) {
+    if (texto_(p.Torneo) !== torneo) return;
+    if (texto_(p.Local).toLowerCase() === DESCANSO.toLowerCase() || texto_(p.Visitante).toLowerCase() === DESCANSO.toLowerCase()) return;
+    const m = texto_(p.Jornada).match(/^S(\d+)J/i);
+    if (m) maxima = Math.max(maxima, entero_(m[1]));
+  });
+  return maxima;
+}
 
 // Managers que aparecieron con otro nombre en torneos viejos.
 const ALIAS_MANAGER = { pedroga: 'Pedro' };
@@ -241,9 +274,11 @@ function crearTorneo_(d) {
     });
     if (filas.length === 5) filas.push({ Torneo: torneo, Equipo: DESCANSO, Estado: 'Activo', Manager: '' });
     agregarFilas_('Equipos', filas);
+    const elegido = validarTipo_(d.tipo || TIPOS[0].nombre, d.semanas);
     agregarFilas_('Torneos', [{
       Torneo: torneo,
-      Semanas: Math.min(Math.max(entero_(d.semanas) || SEMANAS_DEFAULT, 1), 20),
+      Tipo: elegido.tipo,
+      Semanas: elegido.semanas,
       Goleadores: d.goleadores === false ? 'No' : 'Sí',
     }]);
     return { datos: leerTodo_() };
@@ -265,23 +300,30 @@ function cambiarEstadoTorneo_(d) {
   });
 }
 
-/** Cambia las semanas que dura un torneo y si se registran goleadores. */
+/**
+ * Cambia el tipo de torneo (y con él las semanas) y si se registran goleadores.
+ * No permite quitar semanas que ya tienen resultados guardados.
+ */
 function ajustarTorneo_(d) {
   const torneo = texto_(d.torneo);
   if (!torneo) throw new Error('Falta el torneo.');
-  const semanas = Math.min(Math.max(entero_(d.semanas) || SEMANAS_DEFAULT, 1), 20);
+  const elegido = validarTipo_(d.tipo, d.semanas);
   const goleadores = d.goleadores === false ? 'No' : 'Sí';
   return conCandado_(function () {
+    const jugada = ultimaSemanaJugada_(torneo);
+    if (elegido.semanas < jugada) {
+      throw new Error('No se puede: ya hay resultados guardados en la semana ' + jugada + ' y ' + elegido.tipo + ' de ' + elegido.semanas + ' semanas los borraría.');
+    }
+    const fila = { Torneo: torneo, Tipo: elegido.tipo, Semanas: elegido.semanas, Goleadores: goleadores };
     const h = prepararHoja_('Torneos');
     const valores = h.hoja.getDataRange().getValues();
     for (let i = 1; i < valores.length; i++) {
       if (texto_(valores[i][h.posicion.Torneo]) === torneo) {
-        h.hoja.getRange(i + 1, h.posicion.Semanas + 1).setValue(semanas);
-        h.hoja.getRange(i + 1, h.posicion.Goleadores + 1).setValue(goleadores);
+        Object.keys(fila).forEach(function (k) { h.hoja.getRange(i + 1, h.posicion[k] + 1).setValue(fila[k]); });
         return { datos: leerTodo_() };
       }
     }
-    agregarFilas_('Torneos', [{ Torneo: torneo, Semanas: semanas, Goleadores: goleadores }]);
+    agregarFilas_('Torneos', [fila]);
     return { datos: leerTodo_() };
   });
 }
@@ -454,17 +496,28 @@ function configurarHoja() {
   });
   const torneosNuevos = Object.keys(archivados).filter(function (t) { return yaEstan.indexOf(t) === -1; }).map(function (t) {
     const g = goles[t];
+    const semanas = archivados[t] ? (maxSemana[t] || SEMANAS_DEFAULT) : Math.max(SEMANAS_DEFAULT, maxSemana[t] || 0);
     return {
       Torneo: t,
-      Semanas: archivados[t] ? (maxSemana[t] || SEMANAS_DEFAULT) : Math.max(SEMANAS_DEFAULT, maxSemana[t] || 0),
+      Tipo: tipoPorSemanas_(semanas),
+      Semanas: semanas,
       Goleadores: g && g.validos < g.total / 2 ? 'No' : 'Sí',
     };
   });
   agregarFilas_('Torneos', torneosNuevos);
 
+  // Torneos que ya estaban en la hoja pero todavía no tienen tipo.
+  const ht = prepararHoja_('Torneos');
+  const filasT = ht.hoja.getDataRange().getValues();
+  for (let i = 1; i < filasT.length; i++) {
+    if (texto_(filasT[i][ht.posicion.Torneo]) && !texto_(filasT[i][ht.posicion.Tipo])) {
+      ht.hoja.getRange(i + 1, ht.posicion.Tipo + 1).setValue(tipoPorSemanas_(entero_(filasT[i][ht.posicion.Semanas])));
+    }
+  }
+
   SpreadsheetApp.flush();
   Logger.log('Listo. Managers nuevos: ' + nuevos.map(function (n) { return n.Emoji + ' ' + n.Manager; }).join(', '));
-  Logger.log('Torneos: ' + torneosNuevos.map(function (t) { return t.Torneo + ' (' + t.Semanas + ' semanas, goleadores: ' + t.Goleadores + ')'; }).join(', '));
+  Logger.log('Torneos: ' + leerHoja_('Torneos').map(function (t) { return t.Torneo + ' = ' + t.Tipo + ' (' + t.Semanas + ' semanas, goleadores: ' + t.Goleadores + ')'; }).join(', '));
 }
 
 /** Separa "🦕Frankfurt (Enorme)" o "🦕Enorme  América" en emoji, club y manager. */

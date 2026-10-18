@@ -74,14 +74,14 @@ const demo = {
         if (D.Equipos.some((e) => e.Torneo === d.torneo)) return { ok: false, error: 'Ya existe un torneo con ese nombre.' };
         for (const e of d.equipos) D.Equipos.push({ Torneo: d.torneo, Equipo: e.equipo, Estado: 'Activo', Manager: e.manager });
         if (d.equipos.length === 5) D.Equipos.push({ Torneo: d.torneo, Equipo: 'Descanso', Estado: 'Activo', Manager: '' });
-        D.Torneos.push({ Torneo: d.torneo, Semanas: d.semanas || 6, Goleadores: d.goleadores === false ? 'No' : 'Sí' });
+        D.Torneos.push({ Torneo: d.torneo, Tipo: d.tipo, Semanas: d.semanas || 6, Goleadores: d.goleadores === false ? 'No' : 'Sí' });
         break;
       }
       case 'cambiarEstadoTorneo':
         for (const e of D.Equipos) if (e.Torneo === d.torneo) e.Estado = d.estado;
         break;
       case 'ajustarTorneo': {
-        const fila = { Torneo: d.torneo, Semanas: d.semanas, Goleadores: d.goleadores === false ? 'No' : 'Sí' };
+        const fila = { Torneo: d.torneo, Tipo: d.tipo, Semanas: d.semanas, Goleadores: d.goleadores === false ? 'No' : 'Sí' };
         const i = D.Torneos.findIndex((x) => x.Torneo === d.torneo);
         if (i >= 0) D.Torneos[i] = fila;
         else D.Torneos.push(fila);
