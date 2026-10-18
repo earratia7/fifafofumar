@@ -63,6 +63,25 @@ const demo = {
         if (d.transferencia?.toma) D.Transferencias.push({ Torneo: d.torneo, Jornada: d.jornada, Equipo: d.transferencia.equipo, Toma: d.transferencia.toma, Cede: d.transferencia.cede });
         break;
       }
+      case 'reemplazarResultado': {
+        if (!D.Partidos.some(mismoPartido)) return { ok: false, error: 'Ese partido ya no estaba guardado.' };
+        const delPartido = (r) => r.Torneo === d.torneo && r.Jornada === d.jornada && (r.Equipo === d.local || r.Equipo === d.visitante);
+        D.Partidos = D.Partidos.filter((p) => !mismoPartido(p));
+        D.Goleadores = D.Goleadores.filter((r) => !delPartido(r));
+        D.Transferencias = D.Transferencias.filter((r) => !delPartido(r));
+        D.Partidos.push({ Torneo: d.torneo, Jornada: d.jornada, Local: d.local, Goles_L: d.gl, Goles_V: d.gv, Visitante: d.visitante, WO: d.wo ? 1 : 0 });
+        for (const g of d.goleadores) D.Goleadores.push({ Torneo: d.torneo, Jornada: d.jornada, Equipo: g.equipo, Jugador: g.jugador, Goles: g.goles || 1 });
+        if (d.transferencia?.toma) D.Transferencias.push({ Torneo: d.torneo, Jornada: d.jornada, Equipo: d.transferencia.equipo, Toma: d.transferencia.toma, Cede: d.transferencia.cede });
+        break;
+      }
+      case 'editarRefuerzo': {
+        const delPartido = (r) => r.Torneo === d.torneo && r.Jornada === d.jornada && (r.Equipo === d.local || r.Equipo === d.visitante);
+        const i = D.Transferencias.findIndex(delPartido);
+        if (i >= 0 && !d.toma) D.Transferencias.splice(i, 1);
+        else if (i >= 0) Object.assign(D.Transferencias[i], { Equipo: d.equipo, Toma: d.toma, Cede: d.cede });
+        else if (d.toma) D.Transferencias.push({ Torneo: d.torneo, Jornada: d.jornada, Equipo: d.equipo, Toma: d.toma, Cede: d.cede });
+        break;
+      }
       case 'borrarResultado': {
         D.Partidos = D.Partidos.filter((p) => !mismoPartido(p));
         const delPartido = (r) => r.Torneo === d.torneo && r.Jornada === d.jornada && (r.Equipo === d.local || r.Equipo === d.visitante);
@@ -72,6 +91,7 @@ const demo = {
       }
       case 'crearTorneo': {
         if (D.Equipos.some((e) => e.Torneo === d.torneo)) return { ok: false, error: 'Ya existe un torneo con ese nombre.' };
+        if (d.equipos.length < 4 || d.equipos.length > 6) return { ok: false, error: 'El torneo necesita de 4 a 6 equipos.' };
         for (const e of d.equipos) D.Equipos.push({ Torneo: d.torneo, Equipo: e.equipo, Estado: 'Activo', Manager: e.manager });
         if (d.equipos.length === 5) D.Equipos.push({ Torneo: d.torneo, Equipo: 'Descanso', Estado: 'Activo', Manager: '' });
         D.Torneos.push({ Torneo: d.torneo, Tipo: d.tipo, Semanas: d.semanas || 6, Goleadores: d.goleadores === false ? 'No' : 'Sí' });

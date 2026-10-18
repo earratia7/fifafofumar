@@ -176,8 +176,8 @@ function cambiarVista(vista) {
 
 function vistaJornadas(liga, t) {
   if (!t) return vacio('🏟️', 'Todavía no hay torneos. Crea uno en <b>Más → Nuevo torneo</b>.');
-  if (t.equipos.length !== 6) {
-    return vacio('⚠️', `Este torneo tiene ${t.equipos.length} equipo(s). El calendario necesita 5 equipos (más el descanso) o 6.`);
+  if (!L.equiposValidos(t.equipos.length)) {
+    return vacio('⚠️', `Este torneo tiene ${t.equipos.length} equipo(s). El calendario necesita de 4 a 6 equipos (con 5 se agrega el descanso).`);
   }
   const visibles = L.semanasDelTorneo(liga, t.nombre);
   if (!estado.semana || estado.semana > visibles) estado.semana = t.archivado ? visibles : L.semanaActual(liga, t.nombre);
@@ -543,8 +543,12 @@ function abrirPartido(datos) {
     <div class="titulo-seccion">Goleadores</div>
     <div class="detalle-goles"><ul>${lista(p.local)}</ul><ul class="derecha">${lista(p.visitante)}</ul></div>`}
     ${refuerzos.length ? `<div class="titulo-seccion">Refuerzo</div>${refuerzos.map((x) => `<div class="recuadro">🟢 ${esc(liga.ficha(p.torneo, x.equipo).manager)} toma a <b>${esc(x.toma)}</b> · cede ${esc(x.cede || 'J.G.')}</div>`).join('')}` : ''}`;
+  const puedeRefuerzo = !p.wo && (p.gl !== p.gv || refuerzos.length);
   const pie = t && !t.archivado
-    ? `<button class="boton peligro" data-accion="corregir" ${datosPartido(p)}>✏️ Corregir resultado</button>`
+    ? `<div class="botones">
+        ${puedeRefuerzo ? `<button class="boton secundario" data-accion="editar-refuerzo" ${datosPartido(p)}>🟢 ${refuerzos.length ? 'Editar' : 'Agregar'} refuerzo</button>` : ''}
+        <button class="boton peligro" data-accion="corregir" ${datosPartido(p)} ${puedeRefuerzo ? '' : 'style="grid-column:1/-1"'}>✏️ Corregir resultado</button>
+      </div>`
     : '';
   mostrarHoja(`${esc(p.jornada)}`, esc(p.torneo), cuerpo, pie);
 }
@@ -553,19 +557,62 @@ async function corregirPartido(datos) {
   const { liga } = estado;
   const p = L.buscarPartido(liga, datos.torneo, datos.jornada, datos.local, datos.visitante);
   if (!p) return;
-  if (!confirm('Se borrará este resultado (con sus goleadores y refuerzo) para que lo captures de nuevo. ¿Continuar?')) return;
   const anterior = {
     gl: p.gl, gv: p.gv, wo: p.wo,
     golesL: L.golesDelPartido(liga, p).filter((g) => g.equipo === p.local).flatMap((g) => Array(g.goles).fill(g.jugador)),
     golesV: L.golesDelPartido(liga, p).filter((g) => g.equipo === p.visitante).flatMap((g) => Array(g.goles).fill(g.jugador)),
     refuerzo: liga.transferencias.find((x) => x.torneo === p.torneo && x.jornada === p.jornada && (x.equipo === p.local || x.equipo === p.visitante)),
   };
+  // No se borra nada aquí: el resultado viejo se reemplaza hasta que se toque Guardar.
+  abrirRegistro({ torneo: p.torneo, jornada: p.jornada, local: p.local, visitante: p.visitante, modo: 'corregir' }, anterior);
+}
+
+// ---------------------------------------------------------------------------
+// Editar solo el refuerzo de un partido
+// ---------------------------------------------------------------------------
+
+let refuerzoEnEdicion = null;
+
+function abrirRefuerzo(datos) {
+  const { liga } = estado;
+  const p = L.buscarPartido(liga, datos.torneo, datos.jornada, datos.local, datos.visitante);
+  if (!p) return;
+  const actual = liga.transferencias.find((x) => x.torneo === p.torneo && x.jornada === p.jornada && (x.equipo === p.local || x.equipo === p.visitante));
+  const ganador = p.gl > p.gv ? p.local : p.gv > p.gl ? p.visitante : null;
+  const equipo = actual?.equipo || ganador;
+  if (!equipo) return avisar('En un empate no hay refuerzo.', 'error');
+  refuerzoEnEdicion = { p, equipo, existe: Boolean(actual) };
+  const f = liga.ficha(p.torneo, equipo);
+  const todos = L.todosLosJugadores(liga);
+  const cuerpo = `
+    <div class="recuadro">${esc(p.jornada)} · ${esc(liga.ficha(p.torneo, p.local).manager)} ${p.gl} - ${p.gv} ${esc(liga.ficha(p.torneo, p.visitante).manager)}. Solo se cambia el refuerzo; el marcador y los goleadores no se tocan.</div>
+    <label class="campo"><span>🟢 Toma</span><input class="entrada" id="refuerzo-toma" value="${actual && L.esNombreValido(actual.toma) ? esc(actual.toma) : ''}" placeholder="Nombre del jugador" list="refuerzo-jugadores" autocomplete="off" autocapitalize="words"></label>
+    <label class="campo"><span>🔴 Cede</span><input class="entrada" id="refuerzo-cede" value="${esc(actual?.cede || 'J.G.')}" autocomplete="off"></label>
+    <datalist id="refuerzo-jugadores">${todos.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
+  const pie = `<div class="botones">
+      ${actual ? '<button class="boton peligro" data-accion="quitar-refuerzo">Quitar</button>' : ''}
+      <button class="boton principal" data-accion="guardar-refuerzo" ${actual ? '' : 'style="grid-column:1/-1"'}>Guardar refuerzo</button>
+    </div>`;
+  mostrarHoja(`Refuerzo de ${esc(f.emoji)} ${esc(f.manager || f.nombre)}`, esc(p.torneo), cuerpo, pie);
+  setTimeout(() => $('#refuerzo-toma')?.focus(), 50);
+}
+
+async function guardarRefuerzo(quitar = false) {
+  const ed = refuerzoEnEdicion;
+  if (!ed) return;
+  const toma = quitar ? '' : $('#refuerzo-toma').value.trim();
+  if (!quitar && !toma) return avisar('Escribe el nombre del jugador que toma.', 'error');
+  if (quitar && !confirm('¿Quitar el refuerzo de este partido?')) return;
+  const { p } = ed;
   try {
-    const r = await enviar('borrarResultado', { torneo: p.torneo, jornada: p.jornada, local: p.local, visitante: p.visitante }, estado.clave);
+    const r = await enviar('editarRefuerzo', {
+      torneo: p.torneo, jornada: p.jornada, local: p.local, visitante: p.visitante,
+      equipo: ed.equipo, toma, cede: quitar ? '' : $('#refuerzo-cede').value.trim() || 'J.G.',
+    }, estado.clave);
     aplicarDatos(r.datos, true);
-    ocultarHoja();
-    abrirRegistro({ torneo: p.torneo, jornada: p.jornada, local: p.local, visitante: p.visitante }, anterior);
-    avisar('Resultado borrado. Captúralo de nuevo.');
+    refuerzoEnEdicion = null;
+    abrirPartido({ torneo: p.torneo, jornada: p.jornada, local: p.local, visitante: p.visitante });
+    avisar(quitar ? 'Refuerzo quitado' : '✅ Refuerzo guardado', 'exito');
   } catch (e) {
     avisar(e.message, 'error');
   }
@@ -581,6 +628,7 @@ function abrirRegistro(datos, anterior = null) {
   const fl = liga.ficha(datos.torneo, datos.local);
   const fv = liga.ficha(datos.torneo, datos.visitante);
   registro = {
+    modo: 'nuevo',
     ...datos, fl, fv,
     conGoleadores: liga.torneos.get(datos.torneo)?.goleadores !== false,
     gl: anterior?.gl || 0,
@@ -724,8 +772,9 @@ function renderRegistro() {
   }
 
   const marcador = r.wo ? (r.ganadorWo === 'L' ? '3 - 0' : '0 - 3') : `${r.gl} - ${r.gv}`;
-  const pie = `<button class="boton principal" data-accion="guardar-resultado" ${r.guardando || r.escaneando ? 'disabled' : ''}>${r.guardando ? 'Guardando…' : `Guardar ${marcador}`}</button>`;
-  mostrarHoja('Registrar resultado', `${esc(r.jornada)} · ${esc(r.torneo)}`, cuerpo, pie);
+  const pie = `<button class="boton principal" data-accion="guardar-resultado" ${r.guardando || r.escaneando ? 'disabled' : ''}>${r.guardando ? 'Guardando…' : `${r.modo === 'corregir' ? 'Guardar cambios' : 'Guardar'} ${marcador}`}</button>`;
+  if (r.modo === 'corregir') cuerpo = '<div class="recuadro">Corrigiendo un resultado guardado. Nada cambia en la hoja hasta que toques <b>Guardar cambios</b>; si cierras, queda como estaba.</div>' + cuerpo;
+  mostrarHoja(r.modo === 'corregir' ? 'Corregir resultado' : 'Registrar resultado', `${esc(r.jornada)} · ${esc(r.torneo)}`, cuerpo, pie);
 }
 
 function cambiarGoles(lado, delta) {
@@ -782,7 +831,7 @@ async function guardarResultado() {
   r.guardando = true;
   renderRegistro();
   try {
-    const res = await enviar('guardarResultado', {
+    const res = await enviar(r.modo === 'corregir' ? 'reemplazarResultado' : 'guardarResultado', {
       torneo: r.torneo, jornada: r.jornada, local: r.local, visitante: r.visitante,
       gl, gv, wo: r.wo, goleadores, transferencia,
     }, estado.clave);
@@ -790,7 +839,8 @@ async function guardarResultado() {
     aplicarDatos(res.datos, true);
     cerrarHoja();
     const pendientes = L.semanaConResultados(estado.liga, r.torneo, semana).filter((p) => !p.descanso && !p.resultado).length;
-    avisar(pendientes ? '✅ Resultado guardado' : `🎉 ¡Semana ${semana} completa!`, 'exito');
+    if (r.modo === 'corregir') avisar('✅ Resultado corregido', 'exito');
+    else avisar(pendientes ? '✅ Resultado guardado' : `🎉 ¡Semana ${semana} completa!`, 'exito');
   } catch (e) {
     if (registro) {
       registro.guardando = false;
@@ -1054,7 +1104,7 @@ function renderNuevoTorneo() {
   const hayActivo = L.torneosOrdenados(estado.liga).some((t) => !t.archivado);
   const cuerpo = `
     <label class="campo"><span>Nombre del torneo</span><input class="entrada" data-campo="nt-nombre" value="${esc(nt.nombre)}" placeholder="Ej. MásGas FC27#2"></label>
-    <div class="titulo-seccion" style="margin-top:6px">Equipos <small>${nt.equipos.length} de 5–6 · el orden define el calendario</small></div>
+    <div class="titulo-seccion" style="margin-top:6px">Equipos <small>${nt.equipos.length} · de 4 a 6 · el orden define el calendario</small></div>
     ${nt.equipos.map((e, i) => `
       <div class="equipo-nuevo">
         <input class="entrada emoji" data-campo="nt-emoji" data-i="${i}" value="${esc(e.emoji)}" aria-label="Emoji">
@@ -1063,7 +1113,7 @@ function renderNuevoTorneo() {
       </div>`).join('')}
     <div class="botones" style="margin-top:8px">
       ${nt.equipos.length < 6 ? '<button class="boton chico secundario" data-accion="nt-agregar">➕ Equipo</button>' : '<span></span>'}
-      ${nt.equipos.length > 5 ? '<button class="boton chico secundario" data-accion="nt-quitar">➖ Quitar último</button>' : '<span></span>'}
+      ${nt.equipos.length > 4 ? '<button class="boton chico secundario" data-accion="nt-quitar">➖ Quitar último</button>' : '<span></span>'}
     </div>
     <button class="boton chico secundario" data-accion="nt-sortear" style="width:100%;margin-top:8px">🎲 Sortear orden</button>
     ${nt.equipos.length === 5 ? '<p class="nota">Con 5 equipos se agrega un “Descanso” automáticamente.</p>' : ''}
@@ -1176,6 +1226,9 @@ document.addEventListener('click', (ev) => {
     case 'registrar': return abrirRegistro(buscarDesdeBoton(el));
     case 'ver-partido': return abrirPartido(buscarDesdeBoton(el));
     case 'corregir': return corregirPartido(buscarDesdeBoton(el));
+    case 'editar-refuerzo': return abrirRefuerzo(buscarDesdeBoton(el));
+    case 'guardar-refuerzo': return guardarRefuerzo();
+    case 'quitar-refuerzo': return guardarRefuerzo(true);
     case 'sumar': return cambiarGoles(d.lado, 1);
     case 'restar': return cambiarGoles(d.lado, -1);
     case 'chip': return tocarChip(d.lado, d.nombre);

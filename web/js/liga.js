@@ -180,13 +180,21 @@ export function torneosOrdenados(liga) {
 // Calendario (misma plantilla que la app original, para respetar las jornadas)
 // ---------------------------------------------------------------------------
 
-const PLANTILLA = [[[0, 1], [2, 3]], [[4, 5], [0, 2]], [[1, 3], [4, 2]], [[0, 4], [1, 5]], [[2, 5], [3, 0]], [[1, 4], [3, 5]], [[0, 5], [1, 2]], [[3, 4]]];
-export const JORNADAS_POR_SEMANA = PLANTILLA.length;
+// Cada semana es un todos contra todos. Con 5 equipos el sexto es el "Descanso".
+const PLANTILLAS = {
+  // 6 equipos: 15 partidos en 8 jornadas.
+  6: [[[0, 1], [2, 3]], [[4, 5], [0, 2]], [[1, 3], [4, 2]], [[0, 4], [1, 5]], [[2, 5], [3, 0]], [[1, 4], [3, 5]], [[0, 5], [1, 2]], [[3, 4]]],
+  // 4 equipos: 6 partidos en 3 jornadas; todos juegan en cada jornada.
+  4: [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]],
+};
+
+export const equiposValidos = (n) => n in PLANTILLAS;
 
 export function generarCalendario(equipos, semana) {
-  if (equipos.length !== 6) return [];
+  const plantilla = PLANTILLAS[equipos.length];
+  if (!plantilla) return [];
   const cal = [];
-  PLANTILLA.forEach((jornada, j) => {
+  plantilla.forEach((jornada, j) => {
     for (let [a, b] of jornada) {
       if (semana % 2 === 0) [a, b] = [b, a];
       cal.push({ jornada: `S${semana}J${j + 1}`, numJornada: j + 1, local: equipos[a].nombre, visitante: equipos[b].nombre });

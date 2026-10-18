@@ -83,6 +83,8 @@ function doPost(e) {
 const ACCIONES_ = {
   guardarResultado: guardarResultado_,
   borrarResultado: borrarResultado_,
+  reemplazarResultado: reemplazarResultado_,
+  editarRefuerzo: editarRefuerzo_,
   crearTorneo: crearTorneo_,
   cambiarEstadoTorneo: cambiarEstadoTorneo_,
   ajustarTorneo: ajustarTorneo_,
@@ -202,61 +204,125 @@ function borrarFilas_(nombre, cumple) {
   return borradas;
 }
 
-function guardarResultado_(d) {
-  const torneo = texto_(d.torneo), jornada = texto_(d.jornada);
-  const local = texto_(d.local), visitante = texto_(d.visitante);
-  if (!torneo || !jornada || !local || !visitante) throw new Error('Faltan datos del partido.');
-  const gl = entero_(d.gl), gv = entero_(d.gv);
+/** Datos del partido que vienen de la app, ya limpios. */
+function datosPartido_(d) {
+  const p = {
+    torneo: texto_(d.torneo), jornada: texto_(d.jornada),
+    local: texto_(d.local), visitante: texto_(d.visitante),
+  };
+  if (!p.torneo || !p.jornada || !p.local || !p.visitante) throw new Error('Faltan datos del partido.');
+  return p;
+}
 
-  return conCandado_(function () {
-    const yaExiste = leerHoja_('Partidos').some(function (p) {
-      return texto_(p.Torneo) === torneo && texto_(p.Jornada) === jornada &&
-        texto_(p.Local) === local && texto_(p.Visitante) === visitante;
-    });
-    if (yaExiste) throw new Error('Ese partido ya estaba registrado. Actualiza la app para verlo.');
+function esElPartido_(p) {
+  return function (fila) {
+    return texto_(fila.Torneo) === p.torneo && texto_(fila.Jornada) === p.jornada &&
+      texto_(fila.Local) === p.local && texto_(fila.Visitante) === p.visitante;
+  };
+}
 
-    agregarFilas_('Partidos', [{
-      Torneo: torneo, Jornada: jornada, Local: local, Goles_L: gl, Goles_V: gv,
-      Visitante: visitante, WO: d.wo ? 1 : 0,
+/** Filas de Goleadores o Transferencias que pertenecen al partido. */
+function delPartido_(p) {
+  return function (fila) {
+    return texto_(fila.Torneo) === p.torneo && texto_(fila.Jornada) === p.jornada &&
+      (texto_(fila.Equipo) === p.local || texto_(fila.Equipo) === p.visitante);
+  };
+}
+
+/** Escribe partido, goleadores y refuerzo. Se llama siempre dentro de conCandado_. */
+function escribirResultado_(p, d) {
+  agregarFilas_('Partidos', [{
+    Torneo: p.torneo, Jornada: p.jornada, Local: p.local, Goles_L: entero_(d.gl), Goles_V: entero_(d.gv),
+    Visitante: p.visitante, WO: d.wo ? 1 : 0,
+  }]);
+
+  // Un renglón por jugador con el total de goles que metió en el partido.
+  const porJugador = {};
+  (d.goleadores || []).forEach(function (g) {
+    const equipo = texto_(g.equipo), jugador = texto_(g.jugador);
+    if (!equipo || !jugador) return;
+    const clave = equipo + '\u0000' + jugador;
+    porJugador[clave] = porJugador[clave] || { Torneo: p.torneo, Jornada: p.jornada, Equipo: equipo, Jugador: jugador, Goles: 0 };
+    porJugador[clave].Goles += entero_(g.goles || 1);
+  });
+  agregarFilas_('Goleadores', Object.keys(porJugador).map(function (k) { return porJugador[k]; }));
+
+  const t = d.transferencia;
+  if (t && texto_(t.toma)) {
+    agregarFilas_('Transferencias', [{
+      Torneo: p.torneo, Jornada: p.jornada, Equipo: texto_(t.equipo),
+      Toma: texto_(t.toma), Cede: texto_(t.cede) || 'J.G.',
     }]);
+  }
+}
 
-    // Un renglón por jugador con el total de goles que metió en el partido.
-    const porJugador = {};
-    (d.goleadores || []).forEach(function (g) {
-      const equipo = texto_(g.equipo), jugador = texto_(g.jugador);
-      if (!equipo || !jugador) return;
-      const clave = equipo + '\u0000' + jugador;
-      porJugador[clave] = porJugador[clave] || { Torneo: torneo, Jornada: jornada, Equipo: equipo, Jugador: jugador, Goles: 0 };
-      porJugador[clave].Goles += entero_(g.goles || 1);
-    });
-    agregarFilas_('Goleadores', Object.keys(porJugador).map(function (k) { return porJugador[k]; }));
-
-    const t = d.transferencia;
-    if (t && texto_(t.toma)) {
-      agregarFilas_('Transferencias', [{
-        Torneo: torneo, Jornada: jornada, Equipo: texto_(t.equipo),
-        Toma: texto_(t.toma), Cede: texto_(t.cede) || 'J.G.',
-      }]);
+function guardarResultado_(d) {
+  const p = datosPartido_(d);
+  return conCandado_(function () {
+    if (leerHoja_('Partidos').some(esElPartido_(p))) {
+      throw new Error('Ese partido ya estaba registrado. Actualiza la app para verlo.');
     }
+    escribirResultado_(p, d);
+    return { datos: leerTodo_() };
+  });
+}
+
+/**
+ * Corrige un resultado ya guardado: borra el anterior (con sus goleadores y refuerzo) y escribe
+ * el nuevo en un solo paso, con la hoja bloqueada. Si algo falla, no se pierde el original.
+ */
+function reemplazarResultado_(d) {
+  const p = datosPartido_(d);
+  return conCandado_(function () {
+    if (!leerHoja_('Partidos').some(esElPartido_(p))) {
+      throw new Error('Ese partido ya no estaba guardado. Actualiza la app.');
+    }
+    borrarFilas_('Partidos', esElPartido_(p));
+    borrarFilas_('Goleadores', delPartido_(p));
+    borrarFilas_('Transferencias', delPartido_(p));
+    escribirResultado_(p, d);
     return { datos: leerTodo_() };
   });
 }
 
 function borrarResultado_(d) {
-  const torneo = texto_(d.torneo), jornada = texto_(d.jornada);
-  const local = texto_(d.local), visitante = texto_(d.visitante);
+  const p = datosPartido_(d);
   return conCandado_(function () {
-    const n = borrarFilas_('Partidos', function (p) {
-      return texto_(p.Torneo) === torneo && texto_(p.Jornada) === jornada &&
-        texto_(p.Local) === local && texto_(p.Visitante) === visitante;
-    });
-    if (!n) throw new Error('No encontré ese partido en la hoja.');
-    const delPartido = function (r) {
-      return texto_(r.Torneo) === torneo && texto_(r.Jornada) === jornada &&
-        (texto_(r.Equipo) === local || texto_(r.Equipo) === visitante);
-    };
-    borrarFilas_('Goleadores', delPartido);
-    borrarFilas_('Transferencias', delPartido);
+    if (!borrarFilas_('Partidos', esElPartido_(p))) throw new Error('No encontré ese partido en la hoja.');
+    borrarFilas_('Goleadores', delPartido_(p));
+    borrarFilas_('Transferencias', delPartido_(p));
+    return { datos: leerTodo_() };
+  });
+}
+
+/**
+ * Cambia solo el refuerzo de un partido, sin tocar marcador ni goleadores.
+ * Sin "toma" se quita el refuerzo.
+ */
+function editarRefuerzo_(d) {
+  const p = datosPartido_(d);
+  const equipo = texto_(d.equipo);
+  if (equipo !== p.local && equipo !== p.visitante) throw new Error('El refuerzo debe ser de uno de los dos equipos.');
+  const toma = texto_(d.toma), cede = texto_(d.cede) || 'J.G.';
+  return conCandado_(function () {
+    if (!leerHoja_('Partidos').some(esElPartido_(p))) throw new Error('Ese partido no está guardado.');
+    const h = prepararHoja_('Transferencias');
+    const valores = h.hoja.getDataRange().getValues();
+    for (let i = valores.length - 1; i >= 1; i--) {
+      const fila = valores[i];
+      const esEste = texto_(fila[h.posicion.Torneo]) === p.torneo && texto_(fila[h.posicion.Jornada]) === p.jornada &&
+        (texto_(fila[h.posicion.Equipo]) === p.local || texto_(fila[h.posicion.Equipo]) === p.visitante);
+      if (!esEste) continue;
+      if (!toma) {
+        h.hoja.deleteRow(i + 1);
+      } else {
+        h.hoja.getRange(i + 1, h.posicion.Equipo + 1).setValue(equipo);
+        h.hoja.getRange(i + 1, h.posicion.Toma + 1).setValue(toma);
+        h.hoja.getRange(i + 1, h.posicion.Cede + 1).setValue(cede);
+      }
+      return { datos: leerTodo_() };
+    }
+    if (toma) agregarFilas_('Transferencias', [{ Torneo: p.torneo, Jornada: p.jornada, Equipo: equipo, Toma: toma, Cede: cede }]);
     return { datos: leerTodo_() };
   });
 }
@@ -265,7 +331,7 @@ function crearTorneo_(d) {
   const torneo = texto_(d.torneo);
   const equipos = (d.equipos || []).filter(function (e) { return texto_(e.equipo); });
   if (!torneo) throw new Error('Escribe el nombre del torneo.');
-  if (equipos.length < 5 || equipos.length > 6) throw new Error('El torneo necesita 5 o 6 equipos.');
+  if (equipos.length < 4 || equipos.length > 6) throw new Error('El torneo necesita de 4 a 6 equipos.');
   return conCandado_(function () {
     const existe = leerHoja_('Equipos').some(function (e) { return texto_(e.Torneo) === torneo; });
     if (existe) throw new Error('Ya existe un torneo con ese nombre.');
