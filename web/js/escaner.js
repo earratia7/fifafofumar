@@ -78,5 +78,6 @@ export function sinRepetirMinuto(goles) {
   });
 }
 
-// Modelo de Gemini y cuánto "piensa" antes de responder (null = lo que decida el modelo).
-export const AJUSTES_ESCANER = { modelo: 'gemini-2.5-flash', pensamiento: null };
+// Modelo de Gemini y cuánto "piensa" antes de responder (null = lo que decida el modelo; 0 = no piensa).
+// Con 0 acertó 10/10 en la prueba de regresión, en ~4 s en vez de ~12 s.
+export const AJUSTES_ESCANER = { modelo: 'gemini-2.5-flash', pensamiento: 0 };
