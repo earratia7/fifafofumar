@@ -351,17 +351,24 @@ export function tablaHistorica(liga) {
   })).sort((a, b) => b.titulos - a.titulos || b.efectividad - a.efectividad || b.pts - a.pts);
 }
 
+// Jugadores distintos que se llaman igual: en el goleo histórico se cuentan aparte, uno por manager.
+// No se puede detectar solo, porque con los refuerzos el mismo jugador real puede anotar para dos
+// managers en un torneo. Ej.: J. Angulo de Perrito (Toluca) y el J. Angulo que Jop tomó de refuerzo.
+export const HOMONIMOS = ['J. Angulo'];
+
 /** Goleadores de todos los torneos, juntando nombres escritos distinto ("Eberé" = "Ebere"). */
 export function goleoHistorico(liga) {
+  const homonimos = new Set(HOMONIMOS.map(normalizarNombre));
   const mapa = new Map();
   for (const g of liga.goles) {
     if (!esNombreValido(g.jugador)) continue;
-    const clave = normalizarNombre(g.jugador);
+    const m = liga.managerDe(g.torneo, g.equipo);
+    const nombre = normalizarNombre(g.jugador);
+    const clave = homonimos.has(nombre) ? `${nombre}|${m || g.equipo}` : nombre;
     const f = mapa.get(clave) || { jugador: g.jugador, goles: 0, managers: new Map(), torneos: new Set(), escrituras: new Map() };
     f.goles += g.goles;
     f.torneos.add(g.torneo);
     f.escrituras.set(g.jugador, (f.escrituras.get(g.jugador) || 0) + g.goles);
-    const m = liga.managerDe(g.torneo, g.equipo);
     if (m) f.managers.set(m, (f.managers.get(m) || 0) + g.goles);
     mapa.set(clave, f);
   }
