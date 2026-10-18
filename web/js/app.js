@@ -487,6 +487,9 @@ function cerrarHoja() {
 
 window.addEventListener('popstate', () => { if (!$('#hoja').hidden) ocultarHoja(); });
 
+// Si se abre el enlace con clave en una pestaña que ya estaba abierta, solo cambia el #: recargamos.
+window.addEventListener('hashchange', () => { if (/k=/.test(location.hash)) location.reload(); });
+
 
 // ---------------------------------------------------------------------------
 // Elegir torneo
