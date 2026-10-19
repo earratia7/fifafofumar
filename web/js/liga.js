@@ -332,7 +332,7 @@ export function palmares(liga) {
 export function tablaHistorica(liga) {
   const filas = new Map();
   const fila = (m) => {
-    if (!filas.has(m)) filas.set(m, { ...filaVacia(), nombre: m, manager: m, torneos: new Set(), titulos: 0, subtitulos: 0 });
+    if (!filas.has(m)) filas.set(m, { ...filaVacia(), nombre: m, manager: m, torneos: new Set(), titulos: 0, subtitulos: 0, trofeos: [] });
     return filas.get(m);
   };
   for (const p of liga.partidos) {
@@ -346,11 +346,18 @@ export function tablaHistorica(liga) {
     sumar(v, p.gv, p.gl);
   }
   for (const pal of palmares(liga)) {
-    if (pal.campeon?.equipo.manager) fila(pal.campeon.equipo.manager).titulos++;
+    if (pal.campeon?.equipo.manager) {
+      const f = fila(pal.campeon.equipo.manager);
+      f.titulos++;
+      f.trofeos.push(iconoTipo(pal.tipo));
+    }
     if (pal.subcampeon?.equipo.manager) fila(pal.subcampeon.equipo.manager).subtitulos++;
   }
+  // Un emoji por título, el del tipo de torneo (🏆 Clásico, ⚡ Relámpago…), agrupados en el orden de TIPOS.
+  const rango = (icono) => { const i = TIPOS.findIndex((t) => t.icono === icono); return i < 0 ? TIPOS.length : i; };
   return [...filas.values()].map((f) => ({
     ...f,
+    trofeos: f.trofeos.sort((a, b) => rango(a) - rango(b)).join(''),
     dg: f.gf - f.gc,
     nTorneos: f.torneos.size,
     efectividad: f.pj ? Math.round((f.pts / (f.pj * 3)) * 100) : 0,

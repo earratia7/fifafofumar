@@ -338,7 +338,7 @@ function historiaManagers(liga) {
     <button class="tarjeta manager-tarjeta" data-accion="ver-manager" data-manager="${esc(f.manager)}">
       <span class="avatar">${esc(liga.emojiDe(f.manager))}</span>
       <span class="datos">
-        <b>${esc(f.manager)}</b> <span class="trofeos">${'🏆'.repeat(f.titulos)}</span>
+        <b>${esc(f.manager)}</b> <span class="trofeos">${f.trofeos}</span>
         <small>${f.nTorneos} torneo(s) · ${f.pj} PJ · ${f.g}G ${f.e}E ${f.p}P</small>
         <small>${f.gf} goles a favor · ${f.gc} en contra</small>
       </span>
@@ -1046,7 +1046,7 @@ function abrirManager(nombre) {
     <div class="tarjeta">
       <div class="manager-tarjeta">
         <span class="avatar">${esc(liga.emojiDe(nombre))}</span>
-        <span class="datos"><b>${esc(nombre)}</b> <span class="trofeos">${'🏆'.repeat(fila.titulos)}</span>
+        <span class="datos"><b>${esc(nombre)}</b> <span class="trofeos">${fila.trofeos}</span>
           <small>${fila.titulos} título(s) · ${fila.subtitulos} subcampeonato(s)</small></span>
         <span class="efectividad"><b>${fila.efectividad}%</b><small>efectividad</small></span>
       </div>
