@@ -504,7 +504,7 @@ function ocultarHoja() {
   $('#hoja-fondo').hidden = true;
   $('#hoja').innerHTML = '';
   document.body.classList.remove('sin-scroll');
-  if (reconocedor) reconocedor.abort();
+  soltarMicrofono();
   registro = null;
   nuevoTorneo = null;
 }
@@ -667,6 +667,7 @@ function abrirRegistro(datos, anterior = null) {
     dictando: false,
     escuchando: false,
     dictado: '',
+    dictadoUsado: false,
     origen: '',
     guardando: false,
     dudas: '',
@@ -896,38 +897,74 @@ function reducirImagen(archivo) {
 // Dictado por voz (sin IA: se interpreta con lo que la app ya sabe del partido)
 // ---------------------------------------------------------------------------
 
+// Une los pedazos que regresa el reconocedor. Chrome en Android a veces manda
+// cada pedazo con todo lo anterior repetido ("Toluca", "Toluca dos"…).
+function unirPedazos(resultados) {
+  const pedazos = [];
+  for (const x of resultados) {
+    const t = x[0].transcript.trim();
+    if (!t) continue;
+    const ultimo = pedazos[pedazos.length - 1];
+    if (ultimo && t.toLowerCase().startsWith(ultimo.toLowerCase())) pedazos[pedazos.length - 1] = t;
+    else pedazos.push(t);
+  }
+  return pedazos.join(' ');
+}
+
+// Suelta el micrófono sin esperar a que el navegador avise que terminó
+// (Safari a veces nunca avisa y el botón se quedaba sin responder).
+function soltarMicrofono() {
+  const viejo = reconocedor;
+  reconocedor = null;
+  if (!viejo) return;
+  viejo.onresult = viejo.onerror = viejo.onend = null;
+  try { viejo.abort(); } catch { /* ya estaba cerrado */ }
+}
+
 function escuchar() {
-  if (reconocedor) {
-    reconocedor.stop();
+  const r = registro;
+  if (reconocedor && r.escuchando) {
+    // Detener: se espera el último pedazo, pero si el navegador no responde
+    // en 1.5 s se cierra a la fuerza.
+    const este = reconocedor;
+    try { este.stop(); } catch { /* ya estaba cerrado */ }
+    setTimeout(() => { if (reconocedor === este) este.onend?.(); }, 1500);
     return;
   }
-  const r = registro;
-  reconocedor = new Voz();
-  reconocedor.lang = 'es-MX';
-  reconocedor.continuous = true;
-  reconocedor.interimResults = true;
-  const previo = r.dictado.trim() ? `${r.dictado.trim()} ` : '';
-  reconocedor.onresult = (ev) => {
-    r.dictado = previo + [...ev.results].map((x) => x[0].transcript).join(' ');
+  soltarMicrofono();
+  const este = new Voz();
+  reconocedor = este;
+  este.lang = 'es-MX';
+  este.continuous = true;
+  este.interimResults = true;
+  // Si lo anterior ya se usó para llenar, se empieza de cero; si no, se sigue.
+  const previo = !r.dictadoUsado && r.dictado.trim() ? `${r.dictado.trim()} ` : '';
+  r.dictado = previo;
+  r.dictadoUsado = false;
+  este.onresult = (ev) => {
+    if (reconocedor !== este) return;
+    r.dictado = previo + unirPedazos(ev.results);
     const caja = $('#texto-dictado');
     if (caja) caja.value = r.dictado;
   };
-  reconocedor.onerror = (ev) => {
+  este.onerror = (ev) => {
+    if (reconocedor !== este) return;
     if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') avisar('Permite el micrófono para esta página, o usa el 🎤 de tu teclado.', 'error');
     else if (!['no-speech', 'aborted'].includes(ev.error)) avisar(`No pude escuchar (${ev.error}). Usa el 🎤 de tu teclado.`, 'error');
   };
-  reconocedor.onend = () => {
-    reconocedor = null;
+  este.onend = () => {
+    if (reconocedor !== este) return;
+    soltarMicrofono();
     if (registro !== r) return;
     r.escuchando = false;
     if (r.dictado.trim()) aplicarDictado();
     else renderRegistro();
   };
   try {
-    reconocedor.start();
+    este.start();
     r.escuchando = true;
   } catch {
-    reconocedor = null;
+    soltarMicrofono();
     avisar('No pude usar el micrófono. Usa el 🎤 de tu teclado.', 'error');
   }
   renderRegistro();
@@ -944,6 +981,7 @@ function aplicarDictado() {
   }
   r.wo = false;
   r.origen = '🎤';
+  r.dictadoUsado = true;
   if (res.marcador[0] !== null) r.gl = res.marcador[0];
   if (res.marcador[1] !== null) r.gv = res.marcador[1];
   if (r.conGoleadores) {
@@ -1327,7 +1365,10 @@ document.addEventListener('input', (ev) => {
     (lado === 'L' ? registro.golesL : registro.golesV)[Number(i)] = el.value;
     const caja = document.getElementById(`sug-${lado}-${i}`);
     if (caja) caja.innerHTML = sugerenciaHTML(lado, Number(i), el.value);
-  } else if (campo === 'dictado' && registro) registro.dictado = el.value;
+  } else if (campo === 'dictado' && registro) {
+    registro.dictado = el.value;
+    registro.dictadoUsado = false;
+  }
   else if (campo === 'toma' && registro) registro.toma = el.value;
   else if (campo === 'cede' && registro) registro.cede = el.value;
   else if (campo === 'nt-nombre') nuevoTorneo.nombre = el.value;
