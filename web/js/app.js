@@ -2,14 +2,18 @@
 import * as L from './liga.js';
 import { cargarDatos, enviar, esDemo, ClaveInvalida } from './api.js';
 import { instruccionesEscaner, ESQUEMA_ESCANER, AJUSTES_ESCANER, escanearConRespaldo, sinRepetirMinuto } from './escaner.js';
-import { interpretarDictado } from './dictado.js';
+import { interpretarDictado, instruccionesAudio, ESQUEMA_AUDIO } from './dictado.js';
 
 const Voz = window.SpeechRecognition || window.webkitSpeechRecognition;
 // Safari (y todo navegador de iPhone) deja de entregar texto si se crea un
 // reconocedor nuevo cada vez: ahí se usa uno solo y se reactiva entre frases.
 const esWebKit = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Android/.test(navigator.userAgent));
+// En iPhone, Safari solo deja usar su reconocimiento de voz una vez (sobre todo
+// con la página guardada como app): ahí se graba el audio y Gemini lo pasa a texto.
+const grabaAudio = esWebKit && Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 let reconocedor = null;
+let grabacion = null; // { r, rec, flujo, pedazos, cancelada }
 let escucha = null; // { r, rec, texto, parcial, detenido, silencios }
 
 const $ = (selector, raiz = document) => raiz.querySelector(selector);
@@ -671,6 +675,7 @@ function abrirRegistro(datos, anterior = null) {
     escaneando: false,
     dictando: false,
     escuchando: false,
+    transcribiendo: false,
     dictado: '',
     dictadoUsado: false,
     origen: '',
@@ -763,12 +768,12 @@ function renderRegistro() {
     ${r.dictando ? `<div class="dictado">
       <textarea id="texto-dictado" class="entrada area" data-campo="dictado" rows="3" placeholder="Ej.: ${esc(ejemplo)}">${esc(r.dictado)}</textarea>
       <div class="botones">
-        ${Voz
-          ? `<button class="boton chico ${r.escuchando ? 'peligro' : 'secundario'}" data-accion="escuchar">${r.escuchando ? '⏹ Detener' : '🎤 Hablar'}</button>`
+        ${Voz || grabaAudio
+          ? `<button class="boton chico ${r.escuchando ? 'peligro' : 'secundario'}" data-accion="escuchar" ${r.transcribiendo ? 'disabled' : ''}>${r.transcribiendo ? '⏳ Escribiendo…' : r.escuchando ? '⏹ Detener' : '🎤 Hablar'}</button>`
           : '<span class="nota" style="margin:0;align-self:center">Usa el 🎤 de tu teclado</span>'}
-        <button class="boton chico principal" data-accion="aplicar-dictado" ${r.escuchando ? 'disabled' : ''}>✔ Llenar</button>
+        <button class="boton chico principal" data-accion="aplicar-dictado" ${r.escuchando || r.transcribiendo ? 'disabled' : ''}>✔ Llenar</button>
       </div>
-      <p class="nota" style="margin:8px 0 0">Di el marcador y luego los goles de cada equipo. Puedes usar el club o el manager, y “doblete” o “Kane dos”. ${r.escuchando ? '<b>Escuchando…</b>' : ''}</p>
+      <p class="nota" style="margin:8px 0 0">Di el marcador y luego los goles de cada equipo. Puedes usar el club o el manager, y “doblete” o “Kane dos”. ${r.escuchando ? `<b>Escuchando…</b>${grabaAudio ? ' Toca ⏹ Detener al terminar.' : ''}` : ''}${r.transcribiendo ? '<b>Pasando tu voz a texto…</b>' : ''}</p>
     </div>` : ''}
     ${r.dudas ? `<div class="recuadro amarillo" style="white-space:pre-line">${esc(r.dudas)}</div>` : ''}
     <div class="captura">
@@ -990,6 +995,13 @@ function terminarEscucha(e) {
 
 // Suelta el micrófono sin esperar a que el navegador avise que terminó.
 function soltarMicrofono() {
+  if (grabacion) {
+    const g = grabacion;
+    grabacion = null;
+    g.cancelada = true;
+    try { g.rec?.stop(); } catch { /* ya estaba cerrado */ }
+    g.flujo?.getTracks().forEach((t) => t.stop());
+  }
   const e = escucha;
   escucha = null;
   if (!e) return;
@@ -1004,6 +1016,7 @@ function soltarMicrofono() {
 }
 
 function escuchar() {
+  if (grabaAudio) return grabarAudio();
   const r = registro;
   if (escucha && r.escuchando) {
     // Detener: se espera el último pedazo, pero si el navegador no responde
@@ -1030,6 +1043,103 @@ function escuchar() {
     avisar('No pude usar el micrófono. Usa el 🎤 de tu teclado.', 'error');
   }
   renderRegistro();
+}
+
+async function grabarAudio() {
+  const r = registro;
+  if (grabacion) {
+    // Detener (si todavía se está pidiendo el micrófono, no hay nada que detener).
+    if (grabacion.rec && grabacion.rec.state !== 'inactive') grabacion.rec.stop();
+    return;
+  }
+  if (r.transcribiendo) return;
+  const g = { r, rec: null, flujo: null, pedazos: [], cancelada: false };
+  grabacion = g;
+  try {
+    g.flujo = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    if (grabacion === g) grabacion = null;
+    return avisar('Permite el micrófono para esta página, o usa el 🎤 de tu teclado.', 'error');
+  }
+  if (grabacion !== g || registro !== r) {
+    g.flujo.getTracks().forEach((t) => t.stop());
+    return undefined;
+  }
+  const tipo = ['audio/mp4', 'audio/webm', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported?.(t));
+  try {
+    g.rec = new MediaRecorder(g.flujo, tipo ? { mimeType: tipo } : undefined);
+  } catch {
+    soltarMicrofono();
+    return avisar('No pude usar el micrófono. Usa el 🎤 de tu teclado.', 'error');
+  }
+  // Si lo anterior ya se usó para llenar, se empieza de cero; si no, se sigue.
+  const previo = !r.dictadoUsado ? r.dictado.trim() : '';
+  r.dictadoUsado = false;
+  g.rec.ondataavailable = (ev) => { if (ev.data?.size) g.pedazos.push(ev.data); };
+  g.rec.onstop = () => {
+    g.flujo.getTracks().forEach((t) => t.stop()); // apaga el micrófono (quita el punto naranja)
+    if (grabacion === g) grabacion = null;
+    if (g.cancelada || registro !== r) return;
+    r.escuchando = false;
+    const audio = new Blob(g.pedazos, { type: g.rec.mimeType || tipo || 'audio/mp4' });
+    if (!audio.size) {
+      renderRegistro();
+      avisar('No se grabó nada. Intenta otra vez.', 'error');
+      return;
+    }
+    transcribir(r, audio, previo);
+  };
+  g.rec.start(1000);
+  r.escuchando = true;
+  setTimeout(() => { if (grabacion === g && g.rec.state !== 'inactive') g.rec.stop(); }, 90000); // máximo 1.5 min
+  renderRegistro();
+  return undefined;
+}
+
+function aBase64(blob) {
+  return new Promise((resolver, rechazar) => {
+    const lector = new FileReader();
+    lector.onload = () => resolver(String(lector.result).split(',')[1] || '');
+    lector.onerror = () => rechazar(new Error('No pude leer la grabación.'));
+    lector.readAsDataURL(blob);
+  });
+}
+
+async function transcribir(r, audio, previo) {
+  r.transcribiendo = true;
+  renderRegistro();
+  try {
+    const describir = (f) => `${f.club || f.nombre} (manager ${f.manager})`;
+    const contexto = {
+      local: describir(r.fl),
+      visitante: describir(r.fv),
+      jugadoresLocal: r.sugL.slice(0, 40).map((j) => j.nombre),
+      jugadoresVisitante: r.sugV.slice(0, 40).map((j) => j.nombre),
+    };
+    const res = await escanearConRespaldo((datos) => enviar('escanear', datos, estado.clave), {
+      ...contexto,
+      imagenes: [{ mime: audio.type.split(';')[0], data: await aBase64(audio) }],
+      instrucciones: instruccionesAudio(contexto),
+      esquema: ESQUEMA_AUDIO,
+    });
+    if (registro !== r) return;
+    const texto = String(res.lectura?.texto || '').trim();
+    r.transcribiendo = false;
+    if (!texto) {
+      renderRegistro();
+      avisar('No alcancé a entender. Intenta otra vez, más cerca del micrófono.', 'error');
+      return;
+    }
+    r.dictado = juntar(previo, texto);
+    aplicarDictado();
+  } catch (e) {
+    avisar(e.message, 'error');
+  } finally {
+    if (registro === r && r.transcribiendo) {
+      r.transcribiendo = false;
+      renderRegistro();
+    }
+  }
 }
 
 function aplicarDictado() {

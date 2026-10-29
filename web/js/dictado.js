@@ -215,3 +215,31 @@ export function interpretarDictado(texto, equipos, todos = []) {
 
   return { marcador, goles: goles.map((l) => l.map((g) => g.jugador)), avisos };
 }
+
+// ---------------------------------------------------------------------------
+// Dictado grabado (iPhone): el audio se manda a Gemini por la misma acción del
+// escáner y aquí se le dice que solo lo pase a texto.
+// ---------------------------------------------------------------------------
+
+export const ESQUEMA_AUDIO = {
+  type: 'OBJECT',
+  properties: { texto: { type: 'STRING' } },
+  required: ['texto'],
+};
+
+export function instruccionesAudio({ local, visitante, jugadoresLocal, jugadoresVisitante }) {
+  const lista = (arr) => arr.join(', ') || '(sin historial)';
+  return [
+    'Transcribe en español, palabra por palabra, lo que dice la persona en el audio.',
+    `Está dictando el resultado de un partido de EA SPORTS FC: LOCAL = ${local} contra VISITANTE = ${visitante}.`,
+    `Jugadores que ha usado el LOCAL: ${lista(jugadoresLocal)}.`,
+    `Jugadores que ha usado el VISITANTE: ${lista(jugadoresVisitante)}.`,
+    '',
+    'Reglas:',
+    '- Escribe solo lo que se dijo, en el mismo orden. No agregues, no resumas y no completes nada.',
+    '- Si un nombre que se dice es claramente un jugador, club o manager de arriba, escríbelo como aparece ahí.',
+    '- Los números puedes escribirlos con letra o con dígito.',
+    '- Si no se entiende nada o no se habla, regresa texto vacío.',
+    'Responde en "texto".',
+  ].join('\n');
+}
