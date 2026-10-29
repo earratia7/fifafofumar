@@ -5,7 +5,12 @@ import { instruccionesEscaner, ESQUEMA_ESCANER, AJUSTES_ESCANER, escanearConResp
 import { interpretarDictado } from './dictado.js';
 
 const Voz = window.SpeechRecognition || window.webkitSpeechRecognition;
+// Safari (y todo navegador de iPhone) deja de entregar texto si se crea un
+// reconocedor nuevo cada vez: ahí se usa uno solo y se reactiva entre frases.
+const esWebKit = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Android/.test(navigator.userAgent));
 let reconocedor = null;
+let escucha = null; // { r, rec, texto, parcial, detenido, silencios }
 
 const $ = (selector, raiz = document) => raiz.querySelector(selector);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -911,60 +916,117 @@ function unirPedazos(resultados) {
   return pedazos.join(' ');
 }
 
-// Suelta el micrófono sin esperar a que el navegador avise que terminó
-// (Safari a veces nunca avisa y el botón se quedaba sin responder).
+const juntar = (...partes) => partes.map((x) => x.trim()).filter(Boolean).join(' ');
+
+function crearReconocedor() {
+  const rec = new Voz();
+  rec.lang = 'es-MX';
+  rec.continuous = !esWebKit;
+  rec.interimResults = true;
+  rec.onresult = (ev) => {
+    const e = escucha;
+    if (!e || e.rec !== rec) return;
+    e.parcial = unirPedazos(ev.results);
+    if (e.parcial) e.silencios = 0;
+    e.r.dictado = juntar(e.texto, e.parcial);
+    const caja = $('#texto-dictado');
+    if (caja) caja.value = e.r.dictado;
+  };
+  rec.onerror = (ev) => {
+    const e = escucha;
+    if (!e || e.rec !== rec) return;
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+      e.detenido = true;
+      avisar('Permite el micrófono para esta página, o usa el 🎤 de tu teclado.', 'error');
+    } else if (ev.error === 'no-speech') {
+      e.silencios += 1;
+      if (e.silencios >= 3) e.detenido = true;
+    } else if (ev.error !== 'aborted') {
+      e.detenido = true;
+      avisar(`No pude escuchar (${ev.error}). Usa el 🎤 de tu teclado.`, 'error');
+    }
+  };
+  rec.onend = () => {
+    const e = escucha;
+    if (!e || e.rec !== rec) return;
+    e.texto = juntar(e.texto, e.parcial);
+    e.parcial = '';
+    // En Safari cada frase cierra la sesión: se vuelve a abrir mientras siga escuchando.
+    if (esWebKit && !e.detenido && registro === e.r) {
+      setTimeout(() => { if (escucha === e && !e.detenido) arrancar(e); }, 250);
+      return;
+    }
+    terminarEscucha(e);
+  };
+  return rec;
+}
+
+function arrancar(e, reintento = false) {
+  try {
+    e.rec.start();
+    return true;
+  } catch {
+    // Safari a veces sigue cerrando la sesión anterior: se espera y se intenta otra vez.
+    if (esWebKit && !reintento) {
+      try { e.rec.stop(); } catch { /* ya estaba cerrado */ }
+      setTimeout(() => { if (escucha === e && !arrancar(e, true)) terminarEscucha(e); }, 400);
+      return true;
+    }
+    return false;
+  }
+}
+
+function terminarEscucha(e) {
+  if (escucha !== e) return;
+  escucha = null;
+  if (!esWebKit) reconocedor = null;
+  if (registro !== e.r) return;
+  const r = e.r;
+  r.escuchando = false;
+  r.dictado = juntar(e.texto, e.parcial);
+  if (r.dictado) aplicarDictado();
+  else renderRegistro();
+}
+
+// Suelta el micrófono sin esperar a que el navegador avise que terminó.
 function soltarMicrofono() {
-  const viejo = reconocedor;
-  reconocedor = null;
-  if (!viejo) return;
-  viejo.onresult = viejo.onerror = viejo.onend = null;
-  try { viejo.abort(); } catch { /* ya estaba cerrado */ }
+  const e = escucha;
+  escucha = null;
+  if (!e) return;
+  e.detenido = true;
+  if (esWebKit) {
+    try { e.rec.stop(); } catch { /* ya estaba cerrado */ }
+  } else {
+    reconocedor = null;
+    e.rec.onresult = e.rec.onerror = e.rec.onend = null;
+    try { e.rec.abort(); } catch { /* ya estaba cerrado */ }
+  }
 }
 
 function escuchar() {
   const r = registro;
-  if (reconocedor && r.escuchando) {
+  if (escucha && r.escuchando) {
     // Detener: se espera el último pedazo, pero si el navegador no responde
     // en 1.5 s se cierra a la fuerza.
-    const este = reconocedor;
-    try { este.stop(); } catch { /* ya estaba cerrado */ }
-    setTimeout(() => { if (reconocedor === este) este.onend?.(); }, 1500);
+    const e = escucha;
+    e.detenido = true;
+    try { e.rec.stop(); } catch { /* ya estaba cerrado */ }
+    setTimeout(() => terminarEscucha(e), 1500);
     return;
   }
   soltarMicrofono();
-  const este = new Voz();
-  reconocedor = este;
-  este.lang = 'es-MX';
-  este.continuous = true;
-  este.interimResults = true;
+  if (!reconocedor) reconocedor = crearReconocedor();
   // Si lo anterior ya se usó para llenar, se empieza de cero; si no, se sigue.
-  const previo = !r.dictadoUsado && r.dictado.trim() ? `${r.dictado.trim()} ` : '';
+  const previo = !r.dictadoUsado ? r.dictado.trim() : '';
   r.dictado = previo;
   r.dictadoUsado = false;
-  este.onresult = (ev) => {
-    if (reconocedor !== este) return;
-    r.dictado = previo + unirPedazos(ev.results);
-    const caja = $('#texto-dictado');
-    if (caja) caja.value = r.dictado;
-  };
-  este.onerror = (ev) => {
-    if (reconocedor !== este) return;
-    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') avisar('Permite el micrófono para esta página, o usa el 🎤 de tu teclado.', 'error');
-    else if (!['no-speech', 'aborted'].includes(ev.error)) avisar(`No pude escuchar (${ev.error}). Usa el 🎤 de tu teclado.`, 'error');
-  };
-  este.onend = () => {
-    if (reconocedor !== este) return;
-    soltarMicrofono();
-    if (registro !== r) return;
-    r.escuchando = false;
-    if (r.dictado.trim()) aplicarDictado();
-    else renderRegistro();
-  };
-  try {
-    este.start();
+  const e = { r, rec: reconocedor, texto: previo, parcial: '', detenido: false, silencios: 0 };
+  escucha = e;
+  if (arrancar(e)) {
     r.escuchando = true;
-  } catch {
-    soltarMicrofono();
+  } else {
+    escucha = null;
+    reconocedor = null;
     avisar('No pude usar el micrófono. Usa el 🎤 de tu teclado.', 'error');
   }
   renderRegistro();
